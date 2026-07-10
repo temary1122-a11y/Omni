@@ -29,3 +29,6 @@ docs/
 # Runtime output produced by the extension
 generated/
 .omniflow/
+
+# Planning doc accidentally placed inside src/
+src/memory/PHASE-2.3-EPISODIC-MEMORY.md
