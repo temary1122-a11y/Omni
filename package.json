@@ -1,10 +1,20 @@
 {
   "name": "omni",
-  "displayName": "Omni — AI Agent Orchestrator",
-  "description": "AI agent orchestrator for VS Code. Clarifies goals, runs research/plan/build/audit/security pipeline, and delivers MVP artifacts.",
+  "displayName": "OmniFlow — AI Agent Orchestrator",
+  "description": "AI agent orchestrator for VS Code. Clarifies a goal and runs a research→plan→build→audit→security→verify pipeline to deliver an MVP project.",
   "version": "0.1.0",
-  "publisher": "omni",
+  "publisher": "temary1122-a11y",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/temary1122-a11y/OmniFlow"
+  },
+  "keywords": [
+    "vscode-extension",
+    "ai-agents",
+    "orchestration",
+    "multi-agent"
+  ],
   "icon": "media/omni-icon.png",
   "engines": {
     "vscode": "^1.85.0"
@@ -145,11 +155,6 @@
         }
       ]
     },
-    "extensionDependencies": [
-      "ms-python.python",
-      "dbaeumer.vscode-eslint",
-      "esbenp.prettier-vscode"
-    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
