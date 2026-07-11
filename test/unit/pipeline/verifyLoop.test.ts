@@ -21,6 +21,8 @@ function makeHost(): PipelineHost {
     requestApproval: vi.fn(),
     emitArtifact: vi.fn(),
     emitPhaseLifecycle: vi.fn(),
+    assertNotCancelled: vi.fn(),
+    isCancelled: vi.fn(() => false),
   };
 }
 

@@ -27,14 +27,14 @@ describe('ContextAgent.enrich contract', () => {
     vi.resetAllMocks();
   });
 
-  it('returns a ContextEnrichment with correct shape and types', async () => {
-    // Mock dependencies to return empty arrays/false for deterministic test
-    (memory.selectiveRetrieve as any).mockResolvedValue([]);
-    (memory.findBestSkill as any).mockResolvedValue({ score: 0, skill: { name: '', description: '', successRate: 0 } });
-    (memory.semanticSearch as any).mockResolvedValue([]);
-    (artifactManager.searchArtifacts as any).mockResolvedValue([]);
+it('returns a ContextEnrichment with correct shape and types', async () => {
+     // Mock dependencies to return empty arrays/false for deterministic test
+     (memory.selectiveRetrieve as any).mockImplementation(() => []);
+     (memory.findBestSkill as any).mockImplementation(() => null);
+     (memory.semanticSearch as any).mockImplementation(() => []);
+     (artifactManager.searchArtifacts as any).mockImplementation(() => []);
 
-    const result: ContextEnrichment = await contextAgent.enrich(goal);
+     const result: ContextEnrichment = await contextAgent.enrich(goal);
 
     // Check structure
     expect(result).toHaveProperty('memoryContext');
@@ -63,10 +63,10 @@ describe('ContextAgent.enrich contract', () => {
         similarity: 0.8,
       },
     ];
-    (memory.selectiveRetrieve as any).mockResolvedValue(mockEpisodes);
-    (memory.findBestSkill as any).mockResolvedValue({ score: 0, skill: { name: '', description: '', successRate: 0 } });
-    (memory.semanticSearch as any).mockResolvedValue([]);
-    (artifactManager.searchArtifacts as any).mockResolvedValue([]);
+    (memory.selectiveRetrieve as any).mockImplementation(() => mockEpisodes);
+    (memory.findBestSkill as any).mockImplementation(() => null);
+    (memory.semanticSearch as any).mockImplementation(() => []);
+    (artifactManager.searchArtifacts as any).mockImplementation(() => []);
 
     const result = await contextAgent.enrich(goal);
 
@@ -77,13 +77,13 @@ describe('ContextAgent.enrich contract', () => {
   });
 
   it('includes skill when found', async () => {
-    (memory.selectiveRetrieve as any).mockResolvedValue([]);
-    (memory.findBestSkill as any).mockResolvedValue({
+    (memory.selectiveRetrieve as any).mockImplementation(() => []);
+    (memory.findBestSkill as any).mockImplementation(() => ({
       score: 0.8,
       skill: { name: 'test-skill', description: 'a test skill', successRate: 0.9 },
-    });
-    (memory.semanticSearch as any).mockResolvedValue([]);
-    (artifactManager.searchArtifacts as any).mockResolvedValue([]);
+    }));
+    (memory.semanticSearch as any).mockImplementation(() => []);
+    (artifactManager.searchArtifacts as any).mockImplementation(() => []);
 
     const result = await contextAgent.enrich(goal);
 
@@ -93,12 +93,12 @@ describe('ContextAgent.enrich contract', () => {
     expect(result.memoryContext).toContain('90% success');
   });
 
-  it('includes artifacts when found', async () => {
-    (memory.selectiveRetrieve as any).mockResolvedValue([]);
-    (memory.findBestSkill as any).mockResolvedValue({ score: 0, skill: { name: '', description: '', successRate: 0 } });
-    (memory.semanticSearch as any).mockResolvedValue([]);
-    (artifactManager.searchArtifacts as any).mockResolvedValue([
-      { filePath: 'src/test.ts', type: 'code', preview: 'console.log(\"hello\");' },
+it('includes artifacts when found', async () => {
+    (memory.selectiveRetrieve as any).mockImplementation(() => []);
+    (memory.findBestSkill as any).mockImplementation(() => null);
+    (memory.semanticSearch as any).mockImplementation(() => []);
+    (artifactManager.searchArtifacts as any).mockImplementation(() => [
+      { filePath: 'src/test.ts', type: 'code', preview: 'console.log("hello");' },
     ]);
 
     const result = await contextAgent.enrich(goal);
@@ -110,12 +110,12 @@ describe('ContextAgent.enrich contract', () => {
   });
 
   it('includes semantic nodes when found', async () => {
-    (memory.selectiveRetrieve as any).mockResolvedValue([]);
-    (memory.findBestSkill as any).mockResolvedValue({ score: 0, skill: { name: '', description: '', successRate: 0 } });
-    (memory.semanticSearch as any).mockResolvedValue([
+    (memory.selectiveRetrieve as any).mockImplementation(() => []);
+    (memory.findBestSkill as any).mockImplementation(() => null);
+    (memory.semanticSearch as any).mockImplementation(() => [
       { label: 'authentication', type: 'concept' },
     ]);
-    (artifactManager.searchArtifacts as any).mockResolvedValue([]);
+    (artifactManager.searchArtifacts as any).mockImplementation(() => []);
 
     const result = await contextAgent.enrich(goal);
 

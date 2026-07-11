@@ -66,11 +66,13 @@ it('returns an ArtifactManifest with correct structure', async () => {
       });
       fs.readFileSync = vi.fn().mockImplementation((_path: string, _encoding: string) => {
         if (_path.endsWith('.env')) {
-          // Simulate a secret in .env
-          return 'API_KEY=secret123\n';
+          // Simulate a secret in .env (with quotes for pattern matching)
+          return 'API_KEY="secret123"\n';
         }
         return 'console.log("hello");\n';
       });
+      fs.mkdirSync = vi.fn();
+      fs.writeFileSync = vi.fn();
 
       // Mock crypto.createHash to return a fixed hash
       const hashMock = {

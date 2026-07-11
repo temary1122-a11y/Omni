@@ -36,6 +36,7 @@ export class MemoryFacade {
   private topN: number;
   private workspaceRoot: string;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private meta: Record<string, any> | null = null;
 
   private constructor(config?: MemoryFacadeConfig, workspaceRoot?: string) {
     this.workspaceRoot = workspaceRoot || '';
@@ -246,15 +247,16 @@ export class MemoryFacade {
           id: ep.id,
           timestamp: ep.timestamp,
           type: ep.type,
-          data: ep.data,
+          data: this.scrubSecrets(ep.data),
           importance: ep.importance,
           embedding: ep.embedding,
         }));
         fs.writeFileSync(path.join(dir, 'episodes.jsonl'), lines.join('\n'), 'utf-8');
         fs.writeFileSync(path.join(dir, 'skills.json'), JSON.stringify(this.memory.proceduralMemory.getAllSkills(), null, 2), 'utf-8');
         const semanticNodes = this.memory.semanticMemory.getAllNodes();
-        fs.writeFileSync(path.join(dir, 'semantic-nodes.json'), JSON.stringify(semanticNodes, null, 2), 'utf-8');
-        fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ version: 1, updatedAt: Date.now() }, null, 2), 'utf-8');
+        const semanticEdges = this.memory.semanticMemory.getAllEdges();
+        fs.writeFileSync(path.join(dir, 'semantic-nodes.json'), JSON.stringify({ nodes: semanticNodes, edges: semanticEdges }, null, 2), 'utf-8');
+        fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ ...this.meta, version: 1, updatedAt: Date.now() }, null, 2), 'utf-8');
       } catch {
         // best-effort persistence
       }
@@ -264,6 +266,33 @@ export class MemoryFacade {
     } else {
       this.flushTimer = setTimeout(doFlush, 2000);
     }
+  }
+
+  private scrubSecrets(data: any): any {
+    if (data === null || typeof data !== 'object') return data;
+    if (Array.isArray(data)) {
+      return data.map((item) => this.scrubSecrets(item));
+    }
+    const sensitiveKeys = new Set([
+      'apiKey', 'api_key', 'apikey',
+      'token', 'access_token', 'refresh_token', 'id_token',
+      'secret', 'client_secret', 'app_secret',
+      'password', 'passwd', 'pass',
+      'privateKey', 'private_key',
+      'auth', 'authorization', 'bearer',
+      'credential', 'credentials',
+    ]);
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (sensitiveKeys.has(key)) {
+        result[key] = '[REDACTED]';
+      } else if (value !== null && typeof value === 'object') {
+        result[key] = this.scrubSecrets(value);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
   }
 
   /** Load memory state from disk if present. No-op if no workspaceRoot or missing files. */
@@ -287,6 +316,22 @@ export class MemoryFacade {
         for (const s of skills) {
           try { this.memory.proceduralMemory.importSkill(s); } catch { /* skip */ }
         }
+      }
+      const semanticPath = path.join(dir, 'semantic-nodes.json');
+      if (fs.existsSync(semanticPath)) {
+        const content = JSON.parse(fs.readFileSync(semanticPath, 'utf-8'));
+        if (Array.isArray(content)) {
+          this.memory.semanticMemory.importNodes(content);
+        } else if (content && typeof content === 'object' && Array.isArray((content as any).nodes)) {
+          this.memory.semanticMemory.importNodes((content as any).nodes);
+          if (Array.isArray((content as any).edges)) {
+            this.memory.semanticMemory.importEdges((content as any).edges);
+          }
+        }
+      }
+      const metaPath = path.join(dir, 'meta.json');
+      if (fs.existsSync(metaPath)) {
+        this.meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
       }
     } catch {
       // best-effort load

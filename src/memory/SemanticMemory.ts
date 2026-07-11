@@ -376,8 +376,38 @@ export class SemanticMemory {
     }
   }
 
+  restoreNode(node: KnowledgeNode): void {
+    this.nodes.set(node.id, node);
+    this.adjacencyList.set(node.id, new Set());
+  }
+
+  restoreEdge(edge: KnowledgeEdge): void {
+    this.edges.set(edge.id, edge);
+    this.adjacencyList.get(edge.sourceId)?.add(edge.targetId);
+    this.adjacencyList.get(edge.targetId)?.add(edge.sourceId);
+  }
+
+  importNodes(nodes: KnowledgeNode[]): void {
+    this.nodes.clear();
+    this.adjacencyList.clear();
+    for (const node of nodes) {
+      this.restoreNode(node);
+    }
+  }
+
+  importEdges(edges: KnowledgeEdge[]): void {
+    this.edges.clear();
+    for (const edge of edges) {
+      this.restoreEdge(edge);
+    }
+  }
+
   getAllNodes(): KnowledgeNode[] {
     return Array.from(this.nodes.values());
+  }
+
+  getAllEdges(): KnowledgeEdge[] {
+    return Array.from(this.edges.values());
   }
 
   getStats(): {

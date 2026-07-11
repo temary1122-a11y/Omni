@@ -121,14 +121,15 @@ export class LLMClient {
       }
 
       const data = (await res.json()) as {
-        choices?: { message?: { content?: string; tool_calls?: any[] } }[];
+        choices?: { message?: { content?: string; reasoning_content?: string; thinking?: string; reasoning?: string; tool_calls?: any[] } }[];
       };
-      const content = data.choices?.[0]?.message?.content ?? '';
+      const rawContent = data.choices?.[0]?.message?.content ?? '';
       const message = (data.choices?.[0]?.message ?? {}) as Record<string, unknown>;
       const reasoning = (message.reasoning_content as string | undefined)
         ?? (message.thinking as string | undefined)
         ?? (message.reasoning as string | undefined)
         ?? undefined;
+      const content = rawContent || reasoning || '';
       if (LLM_DEBUG) console.log('[LLMClient] Extracted reasoning:', reasoning ? 'present' : 'none');
 
       // Native tool calls (OpenAI-compatible). Parse each definition's arguments JSON.

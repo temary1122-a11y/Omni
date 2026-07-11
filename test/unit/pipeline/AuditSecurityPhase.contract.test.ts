@@ -177,21 +177,19 @@ describe('AuditSecurityPhase contract', () => {
 
 it('does not call security.execute if security phase is not in phases', async () => {
   ctx.phases = ['audit']; // no security
-  // Mock security.execute to return a safe value to prevent errors if it is called
-  services.security.execute.mockResolvedValue({ artifacts: [] });
   await phase.run(host, ctx, services);
   expect(services.security.execute).not.toHaveBeenCalled();
 });
 
 it('does not call auditor.execute if audit phase is not in phases', async () => {
-  ctx.phases = ['security']; // no audit
-  // Mock auditor.execute to return a safe value to prevent errors if it is called
-  services.auditor.execute.mockResolvedValue({ artifacts: [] });
-  await phase.run(host, ctx, services);
-  expect(services.auditor.execute).not.toHaveBeenCalled();
-});
-      await phase.run(host, ctx, services);
-      expect(services.auditor.execute).not.toHaveBeenCalled();
+    ctx.phases = ['security']; // no audit
+    services.security.execute.mockResolvedValue({
+      artifacts: [{ filePath: 'test.json', content: JSON.stringify({ taskId: 'task-123', findings: [], passed: true }) }],
+      subtaskId: 'sec_task-123',
+      completedAt: Date.now(),
     });
+    await phase.run(host, ctx, services);
+    expect(services.auditor.execute).not.toHaveBeenCalled();
+  });
   });
 });

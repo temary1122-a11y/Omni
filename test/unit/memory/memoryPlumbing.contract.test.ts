@@ -236,6 +236,100 @@ describe('L0/L1 memory persistence — 3.3 restart loadFromDisk finds skill', ()
   });
 });
 
+// ─── 3.3b Semantic nodes + edges persistence after restart ────────────────────
+
+describe('L0/L1 memory persistence — 3.3b restart loadFromDisk restores semantic graph', () => {
+  it('persists semantic nodes and edges to disk and restores them after restart', async () => {
+    const root = tmp();
+    const memory = MemoryFacade.getInstance(root);
+    memory.addKnowledgeNode({ label: 'ServiceA', type: 'concept', properties: { x: 1 } });
+    memory.addKnowledgeNode({ label: 'ServiceB', type: 'concept', properties: {} });
+    memory.addKnowledgeEdge('ServiceA', 'ServiceB', 'calls');
+
+    memory.flushToDisk(true);
+
+    MemoryFacade.destroyInstance(root);
+    const memory2 = MemoryFacade.getInstance(root);
+    await memory2.loadFromDisk();
+
+    const found = memory2.semanticSearch('ServiceA', 10);
+    expect(found.length).toBeGreaterThanOrEqual(1);
+    expect(found[0].label).toBe('ServiceA');
+
+    const raw = memory2.getRawMemory().semanticMemory;
+    expect(raw.getAllNodes().length).toBeGreaterThanOrEqual(3);
+    expect(raw.getAllEdges().length).toBeGreaterThanOrEqual(1);
+    expect(raw.getAllEdges().some(e => e.relation === 'calls')).toBe(true);
+  });
+
+  it('restores legacy semantic-nodes.json (array without edges field)', async () => {
+    const root = tmp();
+    const memory = MemoryFacade.getInstance(root);
+    memory.addKnowledgeNode({ label: 'LegacyNode', type: 'concept', properties: {} });
+    memory.flushToDisk(true);
+
+    const legacyPath = path.join(root, '.omniflow', 'memory', 'semantic-nodes.json');
+    const legacyContent = JSON.parse(fs.readFileSync(legacyPath, 'utf-8'));
+    fs.writeFileSync(legacyPath, JSON.stringify(legacyContent.nodes), 'utf-8');
+
+    MemoryFacade.destroyInstance(root);
+    const memory2 = MemoryFacade.getInstance(root);
+    await memory2.loadFromDisk();
+
+    expect(memory2.semanticSearch('LegacyNode').length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─── 3.3c Meta.json load after restart ───────────────────────────────────────
+
+describe('L0/L1 memory persistence — 3.3c meta.json load', () => {
+  it('reads meta.json back into memory after loadFromDisk', async () => {
+    const root = tmp();
+    const memory = MemoryFacade.getInstance(root);
+    memory.flushToDisk(true);
+
+    const metaPath = path.join(root, '.omniflow', 'memory', 'meta.json');
+    fs.writeFileSync(metaPath, JSON.stringify({ version: 1, updatedAt: 42, workspaceId: 'ws-1' }, 'utf-8'));
+
+    MemoryFacade.destroyInstance(root);
+    const memory2 = MemoryFacade.getInstance(root);
+    await memory2.loadFromDisk();
+
+    expect((memory2 as any).meta).toBeTruthy();
+    expect((memory2 as any).meta.workspaceId).toBe('ws-1');
+    expect((memory2 as any).meta.updatedAt).toBe(42);
+  });
+});
+
+// ─── 3.3d Scrub secrets in episodes.jsonl ────────────────────────────────────
+
+describe('L0/L1 memory persistence — 3.3d episode secrets are scrubbed on flush', () => {
+  it('redacts sensitive fields in episode data before writing episodes.jsonl', async () => {
+    const root = tmp();
+    const memory = MemoryFacade.getInstance(root);
+    memory.recordEpisode('tool_result', {
+      agentId: 'coder',
+      toolName: 'deploy',
+      excerpt: 'deployed ok',
+      apiKey: 'super-secret-key',
+      password: 'hunter2',
+      nested: { token: 'abc', safe: 'visible' },
+    }, 0.8);
+
+    memory.flushToDisk(true);
+
+    const epsPath = path.join(root, '.omniflow', 'memory', 'episodes.jsonl');
+    const raw = fs.readFileSync(epsPath, 'utf-8');
+    const line = JSON.parse(raw.split('\n').filter(Boolean)[0]);
+
+    expect(line.data.apiKey).toBe('[REDACTED]');
+    expect(line.data.password).toBe('[REDACTED]');
+    expect(line.data.nested.token).toBe('[REDACTED]');
+    expect(line.data.nested.safe).toBe('visible');
+    expect(line.data.excerpt).toBe('deployed ok');
+  });
+});
+
 // ─── 3.4 Never require network in unit tests ─────────────────────────────────
 
 describe('L0 memory plumbing — 3.4 offline harness (no network)', () => {

@@ -110,6 +110,10 @@ describe('ContextEnrichPhase', () => {
           semanticNodeCount: 0,
         })),
       },
+      memory: {
+        setContextPacket: vi.fn(),
+        getContextPacket: vi.fn(),
+      },
     } as unknown as PipelineServices;
 
     await phase.run(host, ctx, services);

@@ -39,7 +39,7 @@ describe('SecurityAgent', () => {
   it('no router → exact heuristic behavior (secrets + static rules)', async () => {
     const ws = makeWs({
       'auth.ts': "const key = 'sk-abcdefghijklmnopqrstuvwx';\nconst x = eval('1+1');\n",
-      'app.ts': "const password = 'hunter2';\n",
+      'app.ts': "const password = \"hunter2\";\n",
     });
     const agent = new SecurityAgent();
     const manifest = await agent.execute(makeContract(ws, ['auth.ts', 'app.ts']), ws);
