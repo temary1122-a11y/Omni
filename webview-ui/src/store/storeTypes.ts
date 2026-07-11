@@ -3,7 +3,6 @@ import type {
   AgentStatus,
   Phase,
   Message,
-  MessagePart,
   ClarifyingQuestion,
   ClarifyingAnswer,
   AgentGraphNode,
@@ -20,6 +19,7 @@ export interface OmniState {
   mode: 'chat' | 'code' | 'ask';
   isStreaming: boolean;
   isRunning: boolean;
+  isPaused: boolean;
   currentPhase: Phase;
   completedPhases: Phase[];
   messages: Message[];
@@ -101,6 +101,7 @@ export const initialOmniState: OmniState = {
   mode: 'code',
   isStreaming: false,
   isRunning: false,
+  isPaused: false,
   currentPhase: 'idle' as Phase,
   completedPhases: [],
   messages: [],
@@ -108,7 +109,7 @@ export const initialOmniState: OmniState = {
   agentGraph: { nodes: [], edges: [] },
   reasoningTraces: emptyTraces(),
   activeTab: 'chat',
-  sidebarOpen: true,
+  sidebarOpen: false,
   selectedAgentId: null,
   showAgentDetail: false,
   pendingQuestions: null,

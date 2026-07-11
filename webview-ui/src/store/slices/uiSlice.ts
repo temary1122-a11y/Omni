@@ -1,4 +1,3 @@
-import type { Phase } from '@/types';
 import type { StateCreator } from 'zustand';
 import type { OmniActions, OmniState } from '../storeTypes';
 
@@ -11,7 +10,7 @@ export type UiSlice = Pick<
 
 export const createUiSlice: StateCreator<OmniState & OmniActions, [], [], UiSlice> = (set) => ({
   activeTab: 'chat',
-  sidebarOpen: true,
+  sidebarOpen: false,
   selectedAgentId: null,
   showAgentDetail: false,
   setActiveTab: (tab) => set({ activeTab: tab }),

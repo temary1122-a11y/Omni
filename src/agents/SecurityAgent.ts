@@ -17,7 +17,6 @@ const SECRET_PATTERNS = [
   /Bearer\s+[a-zA-Z0-9._-]{20,}/,
 ];
 
-/** Lightweight static rules layered on top of regex secret scanning. */
 const STATIC_RULES: { pattern: RegExp; severity: SecurityReport['findings'][number]['severity']; issue: string }[] = [
   { pattern: /rejectUnauthorized\s*:\s*false/i, severity: 'high', issue: 'TLS certificate verification disabled (rejectUnauthorized: false)' },
   { pattern: /NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0['"]?/i, severity: 'high', issue: 'NODE_TLS_REJECT_UNAUTHORIZED disabled globally' },
@@ -68,46 +67,24 @@ export class SecurityAgent extends BaseAgent {
   }
 
   async execute(contract: HandoffContract, workspaceRoot: string): Promise<ArtifactManifest> {
-    let findings: SecurityReport['findings'] = [];
+    const regexFindings = runRegexSecrets(contract, workspaceRoot);
 
-    for (const target of contract.artifactTargets) {
-      const full = path.join(workspaceRoot, target.filePath);
-      if (!fs.existsSync(full)) continue;
-      const content = fs.readFileSync(full, 'utf-8');
-      const lines = content.split('\n');
-
-      lines.forEach((line, idx) => {
-        for (const pattern of SECRET_PATTERNS) {
-          if (pattern.test(line)) {
-            findings.push({
-              severity: 'high',
-              file: target.filePath,
-              issue: `Potential secret on line ${idx + 1}: ${line.trim().slice(0, 60)}…`,
-            });
-          }
-        }
-        if (/\.env\b/.test(line) && !/\.env\.example/.test(line)) {
-          findings.push({ severity: 'low', file: target.filePath, issue: 'References .env file — ensure not committed' });
-        }
-        for (const rule of STATIC_RULES) {
-          if (rule.pattern.test(line)) {
-            findings.push({ severity: rule.severity, file: target.filePath, issue: `${rule.issue} (line ${idx + 1})` });
-          }
-        }
-      });
-    }
-
-    // Heuristic high-severity findings (secrets / disabled TLS) always force a fail.
-    const passedHeuristic = !findings.some((f) => f.severity === 'high');
+    let findings: SecurityReport['findings'] = [...regexFindings];
 
     if (this.enableLlm && this.router && this.apiKeys) {
-      findings = await this.runLlmReview(contract, workspaceRoot, findings);
+      const llm = await safeLlmSecurityReview(contract, workspaceRoot, this.router, this.apiKeys, this.eventBus);
+      for (const f of llm.findings) {
+        if ((f.confidence ?? 1) >= 0.6 && f.evidence && f.file) {
+          findings.push(f);
+        }
+      }
     }
 
+    const passed = !findings.some(f => f.severity === 'high');
     const report: SecurityReport = {
       taskId: contract.contextPacket.taskId,
       findings,
-      passed: !findings.some((f) => f.severity === 'high'),
+      passed,
     };
 
     const content = JSON.stringify(report, null, 2);
@@ -118,32 +95,53 @@ export class SecurityAgent extends BaseAgent {
 
     return this.createManifest(contract.subtaskId, [{ filePath: relPath, content, hash: this.hash(content) }], report.passed ? 'Security PASS' : 'Security issues found');
   }
+}
 
-  /**
-   * Deterministically filter to the most security-relevant files and truncate their
-   * content so a single LLM call stays within budget/latency limits.
-   */
-  private selectReviewFiles(contract: HandoffContract, workspaceRoot: string): { rel: string; content: string }[] {
-    const scored = contract.artifactTargets
-      .map((t) => ({ t, full: path.join(workspaceRoot, t.filePath) }))
-      .filter((x) => fs.existsSync(x.full))
-      .map((x) => {
-        const rel = x.t.filePath;
-        const score = SECURITY_RELEVANT.test(rel) ? 1 : 0;
-        return { rel, score, content: fs.readFileSync(x.full, 'utf-8').slice(0, MAX_FILE_CONTENT_CHARS) };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_LLM_FILES);
-    return scored.map((s) => ({ rel: s.rel, content: s.content }));
+function runRegexSecrets(contract: HandoffContract, workspaceRoot: string): SecurityReport['findings'] {
+  const findings: SecurityReport['findings'] = [];
+
+  for (const target of contract.artifactTargets) {
+    const full = path.join(workspaceRoot, target.filePath);
+    if (!fs.existsSync(full)) continue;
+    const content = fs.readFileSync(full, 'utf-8');
+    const lines = content.split('\n');
+
+    lines.forEach((line, idx) => {
+      for (const pattern of SECRET_PATTERNS) {
+        if (pattern.test(line)) {
+          findings.push({
+            severity: 'high',
+            file: target.filePath,
+            issue: `Potential secret on line ${idx + 1}: ${line.trim().slice(0, 60)}…`,
+          });
+        }
+      }
+      if (/\.env\b/.test(line) && !/\.env\.example/.test(line)) {
+        findings.push({ severity: 'low', file: target.filePath, issue: 'References .env file — ensure not committed' });
+      }
+      for (const rule of STATIC_RULES) {
+        if (rule.pattern.test(line)) {
+          findings.push({ severity: rule.severity, file: target.filePath, issue: `${rule.issue} (line ${idx + 1})` });
+        }
+      }
+    });
   }
 
-  private async runLlmReview(
-    contract: HandoffContract,
-    workspaceRoot: string,
-    heuristics: SecurityReport['findings']
-  ): Promise<SecurityReport['findings']> {
-    const files = this.selectReviewFiles(contract, workspaceRoot);
-    if (files.length === 0) return heuristics;
+  return findings;
+}
+
+async function safeLlmSecurityReview(
+  contract: HandoffContract,
+  workspaceRoot: string,
+  router: LlmReviewRouter,
+  apiKeys: Record<string, string>,
+  eventBus?: EventBus
+): Promise<{ findings: SecurityReport['findings'] }> {
+  try {
+    const files = selectReviewFiles(contract, workspaceRoot);
+    if (files.length === 0) {
+      return { findings: [] };
+    }
 
     const fileBlock = files
       .map((f) => `### ${f.rel}\n\`\`\`\n${f.content}\n\`\`\``)
@@ -157,23 +155,38 @@ export class SecurityAgent extends BaseAgent {
       'Only include findings you can justify with a quoted evidence snippet from the file. If none, return {"findings":[],"passed":true}.\n\n' +
       fileBlock;
 
-    const res = await this.callLlmJsonReview(
-      this.router as LlmReviewRouter,
-      this.apiKeys,
+    const res = await router.call(
       { phase: 'security', agentRole: 'security', complexity: 'low' },
       prompt,
-      'You are a security reviewer. Respond ONLY with JSON.'
+      'You are a security reviewer. Respond ONLY with JSON.',
+      apiKeys
     );
-    if (!res || !res.parsed || !Array.isArray((res.parsed as any).findings)) {
-      return [...heuristics];
+
+    if (!res || res.usedFallback) {
+      return { findings: [] };
+    }
+
+    const raw = extractJsonFromLLMResponse(res.content, res.reasoning);
+    if (!raw) {
+      return { findings: [] };
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { findings: [] };
+    }
+
+    if (!parsed || !Array.isArray(parsed.findings)) {
+      return { findings: [] };
     }
 
     const knownFiles = new Set(files.map((f) => f.rel));
     const llmFindings: SecurityReport['findings'] = [];
-    for (const raw of (res.parsed as any).findings as LlmSecurityFinding[]) {
+    for (const raw of parsed.findings as LlmSecurityFinding[]) {
       if (llmFindings.length >= MAX_LLM_FINDINGS) break;
       const evidence = (raw.evidence || '').toString().trim();
-      // Anti-hallucination: require quoted evidence and a minimum confidence.
       if (!evidence) continue;
       const confidence = typeof raw.confidence === 'number' ? raw.confidence : 1;
       if (confidence < CONFIDENCE_THRESHOLD) continue;
@@ -186,11 +199,69 @@ export class SecurityAgent extends BaseAgent {
         severity,
         file: relFile,
         issue: `${raw.issue || 'Security concern'}${line} — evidence: "${evidence.slice(0, 120)}"${cwe}`,
+        evidence,
+        confidence,
       });
     }
 
-    // Heuristic findings are always kept; LLM findings are advisory additions.
-    // Regex high-severity secrets are never overridden by the LLM.
-    return [...heuristics, ...llmFindings];
+    return { findings: llmFindings };
+  } catch {
+    return { findings: [] };
   }
+}
+
+function selectReviewFiles(contract: HandoffContract, workspaceRoot: string): { rel: string; content: string }[] {
+  const scored = contract.artifactTargets
+    .map((t) => ({ t, full: path.join(workspaceRoot, t.filePath) }))
+    .filter((x) => fs.existsSync(x.full))
+    .map((x) => {
+      const rel = x.t.filePath;
+      const score = SECURITY_RELEVANT.test(rel) ? 1 : 0;
+      return { rel, score, content: fs.readFileSync(x.full, 'utf-8').slice(0, MAX_FILE_CONTENT_CHARS) };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_LLM_FILES);
+  return scored.map((s) => ({ rel: s.rel, content: s.content }));
+}
+
+function extractJsonFromLLMResponse(content: string | undefined, reasoning: string | undefined): string {
+  const candidates = [content, reasoning].filter(Boolean) as string[];
+
+  for (const text of candidates) {
+    if (!text) continue;
+
+    const stripped = text.replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1').trim();
+    try {
+      JSON.parse(stripped);
+      return stripped;
+    } catch {
+    }
+
+    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      const extracted = codeBlockMatch[1].trim();
+      try {
+        JSON.parse(extracted);
+        return extracted;
+      } catch {
+      }
+    }
+
+    const arrayMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (arrayMatch) {
+      try {
+        JSON.parse(arrayMatch[0]);
+        return arrayMatch[0].trim();
+      } catch {
+      }
+    }
+
+    try {
+      JSON.parse(text);
+      return text;
+    } catch {
+    }
+  }
+
+  return '';
 }

@@ -30,7 +30,10 @@ export type AgentRole =
   | 'coder'
   | 'auditor'
   | 'security'
-  | 'verifier';
+  | 'verifier'
+  | 'pre-installer'
+  | 'tool-manager'
+  | 'context-agent';
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'blocked' | 'error';
 

@@ -586,7 +586,7 @@ export class AgentRuntime {
        addArtifact(art.filePath, art.content);
      }
 
-     const filePattern = /(?:create|write|save|generate|built|wrote|saved)\s+(?:file\s+)?['"` + '`' + `]?([^'"` + '`' + `\s]+\.(ts|js|json|md|txt|py|yaml|yml|sh))['"` + '`' + `]?/gi;
+     const filePattern = /(?:create|write|save|generate|built|wrote|saved)\s+(?:file\s+)?['"]?([^'"`\s]+\.(ts|js|json|md|txt|py|yaml|yml|sh))['"]?/gi;
      let match;
      while ((match = filePattern.exec(response)) !== null) {
        const fp = match[1];

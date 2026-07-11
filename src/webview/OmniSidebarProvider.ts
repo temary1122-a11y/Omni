@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { buildCockpitHtml, handleCockpitMessage, WebviewBridgeImpl } from './OmniPanel';
+import { buildCockpitHtml, handleCockpitMessage, injectCsp, WebviewBridgeImpl } from './OmniPanel';
 
 export class OmniSidebarProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'omni.cockpit';
@@ -36,7 +36,9 @@ export class OmniSidebarProvider implements vscode.WebviewViewProvider {
       console.debug(`[OmniSidebarProvider] Replacing ${match} with ${attr}="${uri}"`);
       return `${attr}="${uri}"`;
     });
-    webviewView.webview.html = processedHtml;
+    // Inject a CSP that whitelists the active webview resource origin so the
+    // inlined bundle is never silently blocked (grey screen).
+    webviewView.webview.html = injectCsp(processedHtml, webviewView.webview);
 
     // Set up message handler BEFORE adding webview to bridge
     this.disposables.push(

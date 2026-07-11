@@ -9,6 +9,7 @@ import { ClarifierAgent } from '../agents/ClarifierAgent';
 import { ResearchAgent } from '../agents/ResearchAgent';
 import { PlannerAgent } from '../agents/PlannerAgent';
 import { CoderAgent } from '../agents/CoderAgent';
+import { ChatAgent } from '../agents/ChatAgent';
 import { AuditAgent } from '../agents/AuditAgent';
 import { SecurityAgent } from '../agents/SecurityAgent';
 import { VerificationAgent } from '../agents/VerificationAgent';
@@ -37,6 +38,7 @@ import { AgentSupervisor } from './AgentSupervisor';
 import { TaskCompass } from './TaskCompass';
 import { PromptOrchestrator } from './PromptOrchestrator';
 import { RoleSelector } from './RoleSelector';
+import { IntentRouter, type IntentDecision, type OmniIntent } from './IntentRouter';
 import {
   createPipelineContext,
   intakePhase,
@@ -64,6 +66,7 @@ import type {
   WorkspaceSnapshot,
   ApprovalResponse,
 } from '../../shared/types';
+import { TIER_PHASE_MANIFEST } from '../pipeline/pipelineManifest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -137,6 +140,8 @@ export class OmniOrchestrator {
   private verifier: VerificationAgent;
   private agentConsultant!: AgentConsultant;
   private executionRouter: ExecutionRouter;
+  private intentRouter!: IntentRouter;
+  private chatAgent!: ChatAgent;
   private clineAvailable = false;
 
   private agentStatuses = new Map<AgentRole, AgentStatus>();
@@ -144,6 +149,7 @@ export class OmniOrchestrator {
   private runtimeEdges: AgentGraphEdge[] = [];
   private cancelRequested = false;
   private isRunning = false;
+  private isPaused = false;
   private static activeInstance: OmniOrchestrator | null = null;
   private startTime = 0;
   private questionResolver: QuestionResolver | null = null;
@@ -243,6 +249,9 @@ export class OmniOrchestrator {
     this.security = new SecurityAgent(this.resilientRouter, this.apiKeys, this.eventBus, config.llmSecurity);
     this.verifier = new VerificationAgent(this.resilientRouter, this.apiKeys, this.eventBus);
 
+    // Inject shared memory into coder for recall_skill / semantic_search
+    this.coder.setMemory(this.sharedMemory);
+
     this.wireAgentInfrastructure();
 
     this.agentConsultant = new AgentConsultant(
@@ -255,6 +264,12 @@ export class OmniOrchestrator {
     this.planner.setConsultFn(this.agentConsultant.consult.bind(this.agentConsultant));
     this.researcher.setConsultFn(this.agentConsultant.consult.bind(this.agentConsultant));
     this.security.setConsultFn(this.agentConsultant.consult.bind(this.agentConsultant));
+
+    // LLM-first intent routing: the model evaluates the request and chooses the
+    // path (chat vs build), replacing the previously hardcoded `intent: 'build'`.
+    this.intentRouter = new IntentRouter(this.router, this.apiKeys, this.eventBus);
+    this.chatAgent = new ChatAgent(this.resilientRouter, this.apiKeys, this.eventBus, this.sharedMemory);
+    this.chatAgent.setConsultFn(this.agentConsultant.consult.bind(this.agentConsultant));
 
     // Register agents with PromptOrchestrator for self-prompting
     this.promptOrchestrator.registerAgent(this.clarifier);
@@ -545,7 +560,7 @@ async requestApiKeyPrompt(payload: { tools: { toolName: string; envVar: string; 
     return this.pendingQuestions;
   }
 
-  async start(rawGoal: string): Promise<DeliveryReport> {
+  async start(rawGoal: string, mode?: string): Promise<DeliveryReport> {
     if (this.isRunning) throw new Error('Orchestrator already running');
     if (OmniOrchestrator.activeInstance && OmniOrchestrator.activeInstance.isRunning) {
       throw new Error('Another Omni orchestration is already running');
@@ -562,6 +577,7 @@ async requestApiKeyPrompt(payload: { tools: { toolName: string; envVar: string; 
     this.contextAgent.clearCache();
     this.refreshConfig();
     this.initAgentStatuses();
+    this.emitStateUpdate();
 
     // Initialize TaskCompass with the goal
     this.taskCompass = new TaskCompass(rawGoal, { type: 'adaptive', driftThreshold: 0.6 });
@@ -573,51 +589,132 @@ async requestApiKeyPrompt(payload: { tools: { toolName: string; envVar: string; 
     this.chat('system', `Starting Omni orchestration on ${CrossPlatformShell.platformInfo()}`);
     this.chat('user', rawGoal);
 
+    // ── LLM-first intent routing ───────────────────────────────────────────
+    // The LLM evaluates the request FIRST and decides the path. This is the
+    // model-driven loop pattern used by Claude Code / Codex / Devin / Kilo:
+    // the harness does not assume a build — the model reads the prompt and
+    // chooses (e.g. answer directly vs. run the builder). The previous code
+    // hardcoded `intent: 'build'`, so even "who are you" spawned coders.
+    this.chat('system', 'Evaluating your request (LLM intent routing)…');
+    const decision: IntentDecision = await this.intentRouter.classify(rawGoal, {
+      mode,
+      workspaceRoot: this.workspaceRoot,
+    });
+    this.chat(
+      'system',
+      `Intent → ${decision.intent} (confidence ${decision.confidence.toFixed(2)}` +
+        `${decision.heuristic ? ', heuristic fallback' : ''}). ${decision.reasoning}`
+    );
+
+    const BUILD_INTENTS = new Set<OmniIntent>(['code', 'debug', 'refactor', 'migrate']);
+    const isBuild = BUILD_INTENTS.has(decision.intent) || (decision.intent === 'unknown' && decision.requiresBuild);
+
+    // Non-build intents (chat / ask / research-without-build / unknown-no-build)
+    // are answered directly — no coder, no build/verify loop.
+    if (!isBuild) {
+      return await this.runChatMode(rawGoal, decision);
+    }
+
     try {
-      // Initialize pipeline context with minimal data (will be populated by intakePhase)
-      const taskId = `task_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-      const pipelineCtx = createPipelineContext({
-        taskId,
-        rawGoal,
-        workspace: { fileTree: [], hasPackageJson: false, hasReadme: false, techStack: [] },
-        goalPacket: {
-          taskId,
-          goal: rawGoal,
-          intent: 'build',
-          complexity: 'low',
-          workspaceSnapshot: { fileTree: [], hasPackageJson: false, hasReadme: false, techStack: [] },
-        },
-        tier: 'LOW',
-        phases: ['intake', 'research', 'planning', 'build', 'verify', 'deliver'],
-      });
-      pipelineCtx.startedAt = this.startTime;
+// Initialize pipeline context with minimal data (will be populated by intakePhase)
+       const taskId = `task_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+       const pipelineCtx = createPipelineContext({
+         taskId,
+         rawGoal,
+         workspace: { fileTree: [], hasPackageJson: false, hasReadme: false, techStack: [] },
+         goalPacket: {
+           taskId,
+           goal: rawGoal,
+           intent: 'build',
+           complexity: 'low',
+           workspaceSnapshot: { fileTree: [], hasPackageJson: false, hasReadme: false, techStack: [] },
+         },
+         tier: 'LOW',
+         phases: ['intake'], // Start with just intake, will update after intake phase
+       });
+       pipelineCtx.startedAt = this.startTime;
 
-      const pipelineHost = this.createPipelineHost();
-      const pipelineServices = this.createPipelineServices();
+       const pipelineHost = this.createPipelineHost();
+       const pipelineServices = this.createPipelineServices();
 
-      // INTAKE: scan workspace, bootstrap docs, create goal packet, triage
-      this.assertNotCancelled();
-      await intakePhase.run(pipelineHost, pipelineCtx, pipelineServices);
-      this.currentTier = pipelineCtx.tier;
+// INTAKE: scan workspace, bootstrap docs, create goal packet, triage
+       this.assertNotCancelled();
+       await this.waitWhilePaused();
+       await intakePhase.run(pipelineHost, pipelineCtx, pipelineServices);
+       this.currentTier = pipelineCtx.tier;
 
-      // RESEARCH → SELF-PROMPT → PLANNING → CONTEXT-ENRICH
-      this.assertNotCancelled();
-      await researchPhase.run(pipelineHost, pipelineCtx, pipelineServices);
-      this.assertNotCancelled();
-      await selfPromptPhase.run(pipelineHost, pipelineCtx, pipelineServices);
-      this.assertNotCancelled();
-      await planningPhase.run(pipelineHost, pipelineCtx, pipelineServices);
-      this.assertNotCancelled();
-      await contextEnrichPhase.run(pipelineHost, pipelineCtx, pipelineServices);
+      // DYNAMIC PHASE SELECTION: Use RoleSelector to determine which phases to run
+      const roleSelector = new RoleSelector();
+      const roleSelection = roleSelector.select(pipelineCtx.goalPacket.goal, pipelineCtx.goalPacket.complexity);
+      
+      // Update the pipeline context with the dynamically determined tier and self-prompting flag
+      pipelineCtx.tier = roleSelection.tier;
+      pipelineCtx.useSelfPrompting = roleSelection.useSelfPrompting;
+      
+      // Build the complete phases array based on role selection
+      // Start with intake (already completed), then add selected phases, then deliver (always last)
+      const phasesToRun: Phase[] = ['intake'];
+      
+      // Add phases from role selection (these come from the ROLE_TO_PHASE mapping in RoleSelector)
+      phasesToRun.push(...roleSelection.phases);
+      
+      // Add self-prompt phase if indicated by role selection
+      if (roleSelection.useSelfPrompting) {
+        phasesToRun.push('self-prompt');
+      }
+      
+      // Always end with deliver
+      phasesToRun.push('deliver');
+      
+      // Update the pipeline context with the final phases list
+      pipelineCtx.phases = phasesToRun;
+
+      // Create phase instance map for easy lookup
+      const phaseInstances: Record<string, any> = {
+        research: researchPhase,
+        'self-prompt': selfPromptPhase,
+        planning: planningPhase,
+        'context-enrich': contextEnrichPhase,
+        deliver: deliverPhase
+      };
+
+      // Execute phases in order (skipping intake as it's already done)
+      for (const phaseId of phasesToRun) {
+        // Skip intake as we already ran it
+        if (phaseId === 'intake') continue;
+
+        this.assertNotCancelled();
+        await this.waitWhilePaused();
+
+        // Handle build/audit/security/verify phases together via runBuildVerifyLoop
+        if (['build', 'audit', 'security', 'verify'].includes(phaseId)) {
+          // We'll handle all build-related phases together in one go
+          continue;
+        }
+
+        // Handle standard phases
+        const phaseInstance = phaseInstances[phaseId];
+        if (phaseInstance) {
+          await phaseInstance.run(pipelineHost, pipelineCtx, pipelineServices);
+        }
+      }
 
       // BUILD → AUDIT → SECURITY → VERIFY (with retry loop)
-      await runBuildVerifyLoop(pipelineHost, pipelineCtx, pipelineServices, {
-        maxRetries: 3,
-        onBeforeRetry: () => this.initAgentStatuses(),
-      });
+      // Check if any of these phases are selected
+      const buildRelatedPhases: Phase[] = ['build', 'audit', 'security', 'verify'];
+      const shouldRunBuildPhase = buildRelatedPhases.some((phase): phase is Phase => phasesToRun.includes(phase));
+      if (shouldRunBuildPhase) {
+        this.assertNotCancelled();
+        await this.waitWhilePaused();
+        await runBuildVerifyLoop(pipelineHost, pipelineCtx, pipelineServices, {
+          maxRetries: 3,
+          onBeforeRetry: () => this.initAgentStatuses(),
+        });
+      }
 
-      // DELIVER
+      // DELIVER: Always run the deliver phase to wrap up
       this.assertNotCancelled();
+      await this.waitWhilePaused();
       const deliverOutcome = await deliverPhase.run(pipelineHost, pipelineCtx, pipelineServices);
       if (!deliverOutcome.report) {
         throw new Error('Deliver phase did not produce a report');
@@ -641,6 +738,44 @@ async requestApiKeyPrompt(payload: { tools: { toolName: string; envVar: string; 
     // Dynamic role selection (no longer a hardcoded switch): complexity + goal signals
     // decide which agents run. HIGH tasks use the full pipeline + self-prompting.
     return this.roleSelector.select(goalPacket.goal, goalPacket.complexity);
+  }
+
+  /**
+   * Direct-answer path for non-build intents (chat / ask / research questions).
+   * Runs a READ-ONLY model-driven loop (ChatAgent) so the LLM can still inspect
+   * the workspace if helpful, but never enters the coder/build/verify pipeline.
+   */
+  private async runChatMode(goal: string, decision: IntentDecision): Promise<DeliveryReport> {
+    const taskId = `chat_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+    this.setAgent('chat' as AgentRole, 'working', 'Answering in chat mode');
+    this.chat('system', 'Chat mode — answering directly (no build pipeline).');
+    try {
+      const answer = await this.chatAgent.answer(goal, this.workspaceRoot);
+      this.chat('assistant', answer);
+      this.setAgent('chat' as AgentRole, 'done', 'Answered');
+      return {
+        taskId,
+        artifacts: [],
+        verdict: 'PASS',
+        durationMs: Date.now() - this.startTime,
+        ledgerPath: '',
+        runInstructions: '',
+        summary: answer,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.chat('system', `Chat failed: ${msg}`);
+      this.setAgent('chat' as AgentRole, 'error', msg);
+      return {
+        taskId,
+        artifacts: [],
+        verdict: 'FAIL',
+        durationMs: Date.now() - this.startTime,
+        ledgerPath: '',
+        runInstructions: '',
+        summary: `Chat mode failed: ${msg}`,
+      };
+    }
   }
 
   private parseJsonSafe(text: string): any {
@@ -886,6 +1021,7 @@ ${decisionsText}`.trim();
   requestStop(): void {
     this.cancelRequested = true;
     this.isRunning = false;
+    this.isPaused = false;
     const roles: AgentRole[] = ['orchestrator', 'clarifier', 'researcher', 'planner', 'coder', 'auditor', 'security', 'verifier'];
     roles.forEach((r) => this.agentStatuses.set(r, 'idle'));
     this.pushGraph();
@@ -898,10 +1034,76 @@ ${decisionsText}`.trim();
         recoverable: true,
       },
     });
+    this.emitStateUpdate();
+  }
+
+  requestPause(): void {
+    if (!this.isRunning || this.isPaused) return;
+    this.isPaused = true;
+    this.chat('system', '⏸ Orchestration paused by user. Use "Continue" to resume.');
+    this.eventBus.emit({
+      type: 'REASONING_TRACE',
+      payload: {
+        agentId: 'orchestrator',
+        phase: this.phaseEngine.getCurrentPhase(),
+        thought: 'Orchestration paused by user',
+        timestamp: Date.now(),
+      },
+    });
+    this.emitStateUpdate();
+  }
+
+  requestResume(): void {
+    if (!this.isPaused) return;
+    this.isPaused = false;
+    this.chat('system', '▶️ Orchestration resumed by user.');
+    this.eventBus.emit({
+      type: 'REASONING_TRACE',
+      payload: {
+        agentId: 'orchestrator',
+        phase: this.phaseEngine.getCurrentPhase(),
+        thought: 'Orchestration resumed by user',
+        timestamp: Date.now(),
+      },
+    });
+    this.emitStateUpdate();
+  }
+
+  isPausedState(): boolean {
+    return this.isPaused;
+  }
+
+  /**
+   * Emit a consolidated state snapshot so the UI can initialize and re-sync
+   * without depending solely on the granular event stream. The
+   * OMNIFLOW_STATE_UPDATE contract was defined (shared/types) but never
+   * emitted, leaving the UI on default state until the first granular event
+   * arrived. We emit this at lifecycle boundaries so a freshly-attached
+   * webview immediately sees the real phase/agents/running state.
+   */
+  private emitStateUpdate(): void {
+    this.eventBus.emit({
+      type: 'OMNIFLOW_STATE_UPDATE',
+      payload: {
+        currentPhase: this.phaseEngine.getCurrentPhase(),
+        completedPhases: this.phaseEngine.getCompletedPhases(),
+        agents: Object.fromEntries(this.agentStatuses) as Record<string, AgentStatus>,
+        artifacts: [],
+        isRunning: this.isRunning,
+      },
+    });
   }
 
   private assertNotCancelled(): void {
     if (this.cancelRequested) throw new Error('Orchestration cancelled by user');
+  }
+
+  /** Block the pipeline while the user has paused it; resolves immediately otherwise. */
+  private async waitWhilePaused(): Promise<void> {
+    while (this.isPaused && !this.cancelRequested) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    this.assertNotCancelled();
   }
 
   exportSessionSnapshot(): Record<string, unknown> {

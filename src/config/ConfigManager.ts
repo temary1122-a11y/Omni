@@ -107,7 +107,7 @@ export class ConfigManager {
 
   static async promptForApiKey(provider: Provider): Promise<void> {
     const key = await vscode.window.showInputBox({
-      prompt: `Enter API key for ${provider} (stored in user settings)`,
+      prompt: `Enter API key for ${provider} (stored securely)`,
       password: true,
       ignoreFocusOut: true,
     });
@@ -122,11 +122,10 @@ export class ConfigManager {
       vscode.window.showWarningMessage(`No settings key for provider: ${provider}`);
       return;
     }
-    await vscode.workspace.getConfiguration('omni').update(settingKey, key, vscode.ConfigurationTarget.Global);
     if (ConfigManager.secretStorage) {
       await ConfigManager.secretStorage.store(`omni.${settingKey}`, key);
       ConfigManager.secretCache[settingKey] = key;
     }
-    vscode.window.showInformationMessage(`Omni: ${provider} API key saved.`);
+    vscode.window.showInformationMessage(`Omni: ${provider} API key saved securely.`);
   }
 }

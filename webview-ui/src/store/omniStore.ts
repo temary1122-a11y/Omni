@@ -1,27 +1,18 @@
 import { create } from 'zustand';
-import type { BackendEvent, UiCommand, AgentRole, Phase, ClarifyingAnswer } from '@/types';
+import type { BackendEvent, UiCommand, AgentRole, AgentStatus, Phase, ClarifyingAnswer } from '@/types';
+import { type OmniState, type OmniActions, idleStatuses, emptyTraces, initialOmniState } from './storeTypes';
 import { postCommand, isBackendConnected } from '@/lib/vscode';
 import { simulateDemoFlow } from '@/sim/engine';
 import {
   shouldShowCommentary,
   shouldShowLlmCall,
   shouldShowReasoningInChat,
-  shouldShowSystemChat,
   shouldShowToolInChat,
   type ChatVerbosity,
 } from '@/lib/chatFilters';
-import {
-  type OmniState,
-  type OmniActions,
-  initialOmniState,
-  idleStatuses,
-  emptyTraces,
-} from './storeTypes';
-import { appendPart, newMessage, callIndex, uid } from './storeUtils';
+import { appendPart, callIndex, uid } from './storeUtils';
 import { createPipelineSlice } from './slices/pipelineSlice';
 import { createUiSlice } from './slices/uiSlice';
-
-export type { OmniState, OmniActions } from './storeTypes';
 
 export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
   const pipelineSlice = createPipelineSlice(set, get, api);
@@ -44,6 +35,8 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
             agentStatuses: payload.agents as Record<AgentRole, AgentStatus>,
             artifacts: payload.artifacts,
             isRunning: payload.isRunning,
+            // A non-running backend means any pause was cleared.
+            isPaused: payload.isRunning ? get().isPaused : false,
           });
           break;
 
@@ -107,38 +100,7 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
           set((s) => ({
             isRunning: false,
             isStreaming: false,
-            messages: appendPart(s.messages, { type: 'delivery', report: payload.report }),
-          }));
-          break;
-
-        case 'CLARIFYING_QUESTIONS':
-          set({ pendingQuestions: payload.questions });
-          break;
-
-        case 'CHAT_MESSAGE': {
-          const content = payload.content;
-          if (payload.role === 'system' && !shouldShowSystemChat(content, verbosity)) {
-            logActivity(`[system] ${content}`);
-            break;
-          }
-          if (payload.role === 'user') {
-            set((s) => ({
-              messages: [...s.messages, newMessage('user', [{ type: 'text', content }])],
-            }));
-          } else if (payload.role === 'assistant') {
-            set((s) => ({
-              messages: appendPart(s.messages, { type: 'text', content }),
-            }));
-          } else {
-            set((s) => ({
-              messages: [...s.messages, newMessage('system', [{ type: 'text', content }])],
-            }));
-          }
-          break;
-        }
-
-        case 'COMMAND_OUTPUT':
-          set((s) => ({
+            isPaused: false,
             messages: appendPart(s.messages, {
               type: 'code',
               language: 'bash',
@@ -333,6 +295,17 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
           set({ pendingApproval: null });
           break;
 
+        case 'CHAT_MESSAGE': {
+          const msg = {
+            id: uid('msg'),
+            role: payload.role,
+            timestamp: payload.timestamp,
+            parts: [{ type: 'text', content: payload.content }],
+          };
+          set((s) => ({ messages: [...s.messages, msg] }));
+          break;
+        }
+
         case 'WORKSPACE_TREE':
           set({ workspaceRoot: payload.root, workspaceTree: payload.tree });
           break;
@@ -384,6 +357,7 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
         lastError: null,
         isRunning: false,
         isStreaming: false,
+        isPaused: false,
         artifacts: [],
         reasoningTraces: emptyTraces(),
       });
@@ -443,15 +417,17 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
     },
 
     togglePause(): void {
+      set({ isPaused: true });
       get().sendCommand('pauseSession');
     },
 
     stopGeneration(): void {
-      set({ isRunning: false, isStreaming: false });
+      set({ isRunning: false, isStreaming: false, isPaused: false });
       get().sendCommand('stopGeneration');
     },
 
     continueSession(): void {
+      set({ isPaused: false });
       get().sendCommand('continueSession');
     },
 
@@ -485,6 +461,7 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
         lastError: null,
         isRunning: false,
         isStreaming: false,
+        isPaused: false,
         artifacts: [],
         reasoningTraces: emptyTraces(),
         workspaceTree: [],

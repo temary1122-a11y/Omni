@@ -4,6 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Omni — AI Orchestrator</title>
+    <!--
+      Pre-bundle global error trap. This is a CLASSIC (non-module) script so it
+      runs before the deferred module bundle. It catches errors thrown during
+      module evaluation / import (which would otherwise be uncaught and leave a
+      silent grey webview) and paints them on screen.
+    -->
+    <script>
+      (function () {
+        function paint(label, detail) {
+          try {
+            var text = detail && detail.stack ? detail.stack : (detail && detail.message ? detail.message : String(detail));
+            var root = document.getElementById('root');
+            if (!root) { document.addEventListener('DOMContentLoaded', function () { paint(label, detail); }); return; }
+            var pre = document.createElement('pre');
+            pre.setAttribute('style', 'white-space:pre-wrap;word-break:break-word;padding:24px;color:#f85149;background:#0b0d12;font:13px/1.5 ui-monospace,monospace;margin:0');
+            pre.textContent = 'Omni webview failed to start (' + label + '):\n\n' + text;
+            root.innerHTML = '';
+            root.appendChild(pre);
+          } catch (e) {}
+        }
+        window.addEventListener('error', function (e) { paint('error', e.error || e.message); });
+        window.addEventListener('unhandledrejection', function (e) { paint('unhandledrejection', e.reason); });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

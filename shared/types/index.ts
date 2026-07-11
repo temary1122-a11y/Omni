@@ -65,6 +65,7 @@ export interface ContextPacket {
   workspaceSnapshot: WorkspaceSnapshot;
   researchSummary?: string;
   planSummary?: string;
+  memoryContext?: string;
 }
 
 export interface ArtifactManifest {

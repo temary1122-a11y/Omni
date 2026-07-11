@@ -7,6 +7,8 @@
 
 import { EventBus } from './EventBus';
 import { SandboxTool } from '../shell/SandboxTool';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface ToolDefinition {
   name: string;
@@ -34,12 +36,15 @@ export class ToolManager {
   private eventBus: EventBus;
   private sandbox: SandboxTool;
   private workspaceRoot: string;
+  private readonly cachePath: string;
 
   constructor(eventBus: EventBus, sandbox: SandboxTool, workspaceRoot: string) {
     this.eventBus = eventBus;
     this.sandbox = sandbox;
     this.workspaceRoot = workspaceRoot;
+    this.cachePath = path.join(workspaceRoot, '.omniflow', 'installed-tools.json');
     this.initializeAvailableTools();
+    this.loadCache();
   }
 
   /**
@@ -322,6 +327,38 @@ export class ToolManager {
     }
     
     return status;
+  }
+
+  /**
+   * Load installed tools cache from disk
+   */
+  private loadCache(): void {
+    try {
+      if (fs.existsSync(this.cachePath)) {
+        const data = JSON.parse(fs.readFileSync(this.cachePath, 'utf-8'));
+        if (Array.isArray(data.installedTools)) {
+          this.installedTools = new Set(data.installedTools);
+        }
+      }
+    } catch {
+      // Cache file corrupted or unreadable; start fresh
+      this.installedTools = new Set();
+    }
+  }
+
+  /**
+   * Save installed tools cache to disk
+   */
+  private saveCache(): void {
+    try {
+      const dir = path.dirname(this.cachePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(this.cachePath, JSON.stringify({ installedTools: Array.from(this.installedTools) }, null, 2));
+    } catch {
+      // Ignore cache write errors
+    }
   }
 
   /**

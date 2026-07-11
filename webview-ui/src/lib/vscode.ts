@@ -101,15 +101,16 @@ export function postCommand(command: UiCommand): void {
  * Subscribe to backend events. Returns an unsubscribe function.
  */
 export function onBackendEvent(handler: (event: BackendEvent) => void): () => void {
-  const listener = (raw: MessageEvent) => {
-    const data = raw.data as BackendEvent | undefined;
-    if (data && typeof data === "object" && "type" in data) {
-      if (data.type === "BACKEND_READY") {
-        markBackendReady();
+const listener = (raw: MessageEvent) => {
+      const data = raw.data as BackendEvent | undefined;
+      if (data && typeof data === "object" && "type" in data) {
+        if (data.type === "BACKEND_READY") {
+          markBackendReady();
+          return; // do not pass to handler
+        }
+        handler(data);
       }
-      handler(data);
-    }
-  };
+    };
   window.addEventListener("message", listener);
   return () => window.removeEventListener("message", listener);
 }

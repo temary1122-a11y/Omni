@@ -23,7 +23,10 @@ export type AgentRole =
   | 'coder'
   | 'auditor'
   | 'security'
-  | 'verifier';
+  | 'verifier'
+  | 'pre-installer'
+  | 'tool-manager'
+  | 'context-agent';
 
 export type AgentStatus = 'idle' | 'working' | 'done' | 'blocked' | 'error';
 
@@ -147,7 +150,14 @@ export interface VerificationVerdictReport {
 
 export interface SecurityReport {
   taskId: string;
-  findings: { severity: 'low' | 'medium' | 'high'; file: string; issue: string }[];
+  findings: {
+    severity: 'low' | 'medium' | 'high';
+    file: string;
+    issue: string;
+    evidence?: string;
+    cwe?: string | null;
+    confidence?: number;
+  }[];
   passed: boolean;
 }
 

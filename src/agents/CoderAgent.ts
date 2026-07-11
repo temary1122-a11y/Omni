@@ -23,6 +23,10 @@ export class CoderAgent extends LlmAgent {
     this.consultFn = fn;
   }
 
+  setMemory(facade: MemoryFacade): void {
+    this.memory = facade;
+  }
+
   async execute(contract: HandoffContract, workspaceRoot: string): Promise<ArtifactManifest> {
     if (!this.validateContract(contract)) throw new Error('Invalid handoff contract');
 

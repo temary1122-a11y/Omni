@@ -1,6 +1,6 @@
 import type { Phase } from '@/types';
 import type { StateCreator } from 'zustand';
-import type { OmniActions, OmniState } from './storeTypes';
+import type { OmniActions, OmniState } from '../storeTypes';
 
 /** Pipeline / phase navigation slice. */
 export type PipelineSlice = Pick<

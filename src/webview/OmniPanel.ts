@@ -89,6 +89,7 @@ export async function handleCockpitMessage(msg: {
   budget?: 'free' | 'low' | 'normal' | 'high';
   useSupervisor?: boolean;
   chatVerbosity?: string;
+  mode?: string;
 }): Promise<void> {
   console.log('[OmniPanel] handleCockpitMessage RECEIVED:', JSON.stringify(msg, null, 2));
   try {
@@ -97,7 +98,7 @@ export async function handleCockpitMessage(msg: {
         console.log('[OmniPanel] START command received with goal:', msg.goal);
         if (msg.goal) {
           console.log('[OmniPanel] executing omni.start for:', msg.goal);
-          await vscode.commands.executeCommand('omni.start', msg.goal);
+          await vscode.commands.executeCommand('omni.start', msg.goal, msg.mode);
           console.log('[OmniPanel] omni.start command executed');
         } else {
           console.warn('[OmniPanel] START command received but no goal provided');
@@ -149,10 +150,10 @@ export async function handleCockpitMessage(msg: {
         getOrchestrator()?.requestStop();
         break;
       case 'pauseSession':
-        vscode.window.showInformationMessage('Omni: Pause is not yet supported — use Stop to cancel the run.');
+        getOrchestrator()?.requestPause();
         break;
       case 'continueSession':
-        vscode.window.showInformationMessage('Omni: Continue will resume from the next phase on the next Start.');
+        getOrchestrator()?.requestResume();
         break;
       case 'exportSession': {
         const orch = getOrchestrator();
@@ -185,6 +186,36 @@ export async function handleCockpitMessage(msg: {
     console.error('[OmniPanel] message handling failed:', e);
     vscode.window.showErrorMessage(`Omni UI error: ${e instanceof Error ? e.message : e}`);
   }
+}
+
+/**
+ * Inject a Content-Security-Policy into the webview HTML.
+ *
+ * The built webview ships WITHOUT a CSP meta tag, so VS Code would fall back to
+ * its default policy. When the webview resource CDN is active (recent VS Code
+ * builds serve assets from `https://file+.vscode-resource.vscode-cdn.net`), the
+ * external `type="module"` bundle can be blocked by that default policy — a
+ * silent failure that leaves the webview permanently grey.
+ *
+ * Using `webview.cspSource` is the canonical, mode-agnostic fix: VS Code sets it
+ * to `'self' https://*.vscode-cdn.net` in CDN mode and to the `vscode-webview:`
+ * origin otherwise, so the asset origin is always whitelisted. `'unsafe-inline'`
+ * is required for the inlined bundle produced by vite-plugin-singlefile.
+ */
+export function injectCsp(html: string, webview: vscode.Webview): string {
+  const csp = [
+    "default-src 'none';",
+    `img-src ${webview.cspSource} https: data: blob:;`,
+    `style-src ${webview.cspSource} 'unsafe-inline';`,
+    `script-src ${webview.cspSource} 'unsafe-inline' 'unsafe-eval';`,
+    `font-src ${webview.cspSource} https: data:;`,
+    `connect-src ${webview.cspSource} https: wss: ws:;`,
+  ].join(' ');
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => `${m}\n    ${meta}`);
+  }
+  return `${meta}\n${html}`;
 }
 
 export function buildCockpitHtml(): string {
@@ -244,11 +275,14 @@ export class OmniPanel {
       return webview.asWebviewUri(uri);
     };
     // Replace all asset file references with webview URIs
-    return html.replace(/(href|src)="\/assets\/([^"]+)"/g, (match, attr, filename) => {
+    const withUris = html.replace(/(href|src)="\/assets\/([^"]+)"/g, (match, attr, filename) => {
       const uri = webviewUri(`assets/${filename}`);
       console.debug(`[OmniPanel] Replacing ${match} with ${attr}="${uri}"`);
       return `${attr}="${uri}"`;
     });
+    // Inject a CSP that whitelists the active webview resource origin (CDN or
+    // vscode-webview://) so the bundle is never silently blocked.
+    return injectCsp(withUris, webview);
   }
 
   private postModelCatalog(): void {

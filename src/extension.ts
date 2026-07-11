@@ -96,7 +96,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       
 
-      vscode.commands.registerCommand('omni.start', async (goal?: string) => {
+      vscode.commands.registerCommand('omni.start', async (goal?: string, mode?: string) => {
         console.log('[extension.ts] omni.start COMMAND CALLED with goal:', goal);
         log.appendLine(`[Omni] omni.start COMMAND CALLED goal=${goal ?? '<none>'}`);
         const fail = (msg: string, phase = 'intake') => {
@@ -116,7 +116,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           console.log('[extension.ts] Goal confirmed:', goal);
           notifyChat(bridge, 'system', `Omni received your task: "${goal}". Starting orchestration…`);
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          if (!root) {
+          const isChat = mode === 'chat' || mode === 'ask';
+          if (!root && !isChat) {
             fail('No workspace folder is open. Open a folder (File → Open Folder) and run the task again.', 'intake');
             return;
           }
@@ -132,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             log.appendLine('[Omni] start ignored — orchestration already running');
             return;
           }
-          const orch = existing ?? new OmniOrchestrator(root);
+          const orch = existing ?? new OmniOrchestrator(root ?? '');
           if (!existing) {
             orch.setWebviewBridge(bridge);
           }
@@ -143,7 +144,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             async () => {
               try {
                 log.appendLine(`[Omni] calling orch.start`);
-                await orch.start(goal!);
+                 await orch.start(goal!, mode);
                 log.appendLine(`[Omni] orchestration complete`);
                 vscode.window.showInformationMessage('Omni: Orchestration complete!');
               } catch (e) {

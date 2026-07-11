@@ -1,7 +1,7 @@
 import { useOmniStore } from '@/store/omniStore';
-import { AGENT_META, STATUS_LABELS, getAgentMeta, getStatusColor } from '@/utils/agentConfig';
+import { STATUS_LABELS, getAgentMeta, getStatusColor } from '@/utils/agentConfig';
 import { cn } from '@/utils/cn';
-import type { AgentRole } from '@/types';
+import type { AgentRole, AgentStatus } from '@/types';
 
 /**
  * AgentCard
@@ -12,7 +12,7 @@ import type { AgentRole } from '@/types';
 
 export function AgentCard({ role }: { role: AgentRole }) {
   const meta = getAgentMeta(role);
-  const status = useOmniStore((s) => s.agentStatuses[role]);
+  const status = useOmniStore((s): AgentStatus => s.agentStatuses[role]);
   const selectedAgentId = useOmniStore((s) => s.selectedAgentId);
   const showAgentDetail = useOmniStore((s) => s.showAgentDetail);
   const setSelectedAgent = useOmniStore((s) => s.setSelectedAgent);

@@ -213,6 +213,9 @@ export class ModelSelector {
       auditor: 'meta-llama/llama-3.2-3b-instruct:free',
       security: 'meta-llama/llama-3.2-3b-instruct:free',
       verifier: 'meta-llama/llama-3.2-3b-instruct:free',
+      'pre-installer': 'meta-llama/llama-3.2-3b-instruct:free',
+      'tool-manager': 'meta-llama/llama-3.2-3b-instruct:free',
+      'context-agent': 'meta-llama/llama-3.2-3b-instruct:free',
     };
 
     const modelId = defaults[agentRole] || defaults.orchestrator;
