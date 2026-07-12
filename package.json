@@ -177,7 +177,8 @@
     "webview:dev": "npm --prefix webview-ui run dev",
     "lint": "tsc --noEmit -p ./",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package": "vsce package"
   },
   "dependencies": {
     "@cline/sdk": "^0.0.54",
@@ -190,6 +191,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/vscode": "^1.85.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vscode/vsce": "^2.24.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
