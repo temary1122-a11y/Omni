@@ -8,3 +8,13 @@ tsconfig.json
 **/*.map
 **/*.ts
 !dist/**
+.kilo/**
+.kilocode/**
+webview-ui/**
+!dist/webview-ui/**
+plans/**
+docs/**
+test-ui.html
+postcss.config.js
+postcss.config.host.js
+tsconfig.webview.json
