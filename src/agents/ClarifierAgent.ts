@@ -9,6 +9,7 @@ import type {
   ClarifyingQuestion,
 } from '../../shared/types';
 import type { LLMResponse } from '../routing/LLMClient';
+import { sleep, backoffDelayMs } from '../util/async';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
@@ -84,9 +85,9 @@ Example output format:
       try {
         // Add delay before retry (exponential backoff)
         if (attempt > 1) {
-          const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+          const delayMs = backoffDelayMs(attempt - 1, { baseMs: 1000, maxMs: 5000 }); // 1s, 2s, 4s max
           console.log(`[ClarifierAgent] Waiting ${delayMs}ms before attempt ${attempt}`);
-          await new Promise(resolve => setTimeout(resolve, delayMs));
+          await sleep(delayMs);
         }
         
         const llm = await this.router.call(
@@ -208,9 +209,9 @@ Example output format:
       try {
         // Add delay before retry (exponential backoff)
         if (attempt > 1) {
-          const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+          const delayMs = backoffDelayMs(attempt - 1, { baseMs: 1000, maxMs: 5000 }); // 1s, 2s, 4s max
           console.log(`[ClarifierAgent] Waiting ${delayMs}ms before attempt ${attempt}`);
-          await new Promise(resolve => setTimeout(resolve, delayMs));
+          await sleep(delayMs);
         }
         
         const llm = await this.router.call(
