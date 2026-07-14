@@ -57,6 +57,35 @@ export function isWithinBoundary(workspaceRoot: string, boundary: string[] | und
   return false;
 }
 
+/**
+ * Resolve a caller-supplied (relative) path against the workspace root and
+ * confirm it stays inside that root. Rejects absolute paths and `..` traversal
+ * so LLM-generated tool calls cannot read/write files outside the workspace
+ * (e.g. `/etc/passwd`, `../../.ssh/id_rsa`).
+ *
+ * The containment test compares the resolved target against the resolved root
+ * with a trailing separator, avoiding the sibling-prefix pitfall where
+ * `/workspace-evil` would falsely match a `/workspace` root.
+ */
+export function resolveWithinWorkspace(
+  workspaceRoot: string,
+  relPath: string
+): { ok: true; fullPath: string } | { ok: false; error: string } {
+  const path = require('path');
+  if (typeof relPath !== 'string' || relPath.length === 0) {
+    return { ok: false, error: 'A file path is required.' };
+  }
+  if (path.isAbsolute(relPath)) {
+    return { ok: false, error: `Absolute paths are not allowed: '${relPath}'. Use a path relative to the workspace root.` };
+  }
+  const root = path.resolve(workspaceRoot);
+  const fullPath = path.resolve(root, relPath);
+  if (fullPath !== root && !fullPath.startsWith(root + path.sep)) {
+    return { ok: false, error: `Path '${relPath}' resolves outside the workspace root. Path traversal is not allowed.` };
+  }
+  return { ok: true, fullPath };
+}
+
 export type ToolExecutor = (
   args: any,
   context: ToolContext
@@ -285,7 +314,13 @@ export function createDefaultTools(
   executors['write_file'] = async (args, context) => {
     const fs = require('fs');
     const path = require('path');
-    const fullPath = path.join(context.workspaceRoot, args.path);
+    // Ensure the resolved path is actually within workspaceRoot (rejects
+    // absolute paths and `..` traversal) before any boundary/write logic.
+    const resolved = resolveWithinWorkspace(context.workspaceRoot, args.path);
+    if (!resolved.ok) {
+      return { success: false, error: `Write blocked: ${resolved.error}`, durationMs: 0 };
+    }
+    const fullPath = resolved.fullPath;
     if (!isWithinBoundary(context.workspaceRoot, context.boundary, args.path)) {
       return {
         success: false,
@@ -293,17 +328,7 @@ export function createDefaultTools(
         durationMs: 0,
       };
     }
-    
-    // Additional validation: ensure the resolved path is actually within workspaceRoot
-    const resolvedPath = path.resolve(context.workspaceRoot, args.path);
-    if (!resolvedPath.startsWith(path.resolve(context.workspaceRoot))) {
-      return {
-        success: false,
-        error: `Write blocked: '${args.path}' resolves outside the workspace root '${context.workspaceRoot}'. Path traversal detected.`,
-        durationMs: 0,
-      };
-    }
-    
+
     try {
       // Ensure parent directories exist — otherwise writing into a nested
       // path (e.g. .omniflow/tasks/t1/report.json) fails with ENOENT.
@@ -338,8 +363,11 @@ export function createDefaultTools(
 
   executors['read_file'] = async (args, context) => {
     const fs = require('fs');
-    const path = require('path');
-    const fullPath = path.join(context.workspaceRoot, args.path);
+    const resolved = resolveWithinWorkspace(context.workspaceRoot, args.path);
+    if (!resolved.ok) {
+      return { success: false, error: `Read blocked: ${resolved.error}`, durationMs: 0 };
+    }
+    const fullPath = resolved.fullPath;
     try {
       const content = fs.readFileSync(fullPath, 'utf-8');
       return {
@@ -378,6 +406,10 @@ export function createDefaultTools(
       newCode: args.newCode,
       action: 'replace_symbol',
     };
+    const resolvedEdit = resolveWithinWorkspace(context.workspaceRoot, args.file);
+    if (!resolvedEdit.ok) {
+      return { success: false, error: `Edit blocked: ${resolvedEdit.error}`, durationMs: 0 };
+    }
     if (!isWithinBoundary(context.workspaceRoot, context.boundary, args.file)) {
       return {
         success: false,
@@ -647,6 +679,10 @@ export function createArtifactTools(
 
   executors['artifact_store'] = async (args, context) => {
     try {
+      const resolvedArtifact = resolveWithinWorkspace(context.workspaceRoot, args.filePath);
+      if (!resolvedArtifact.ok) {
+        return { success: false, error: `Artifact store blocked: ${resolvedArtifact.error}`, durationMs: 0 };
+      }
       if (!isWithinBoundary(context.workspaceRoot, context.boundary, args.filePath)) {
         return {
           success: false,

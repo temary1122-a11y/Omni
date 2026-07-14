@@ -251,9 +251,24 @@ export class SandboxTool {
     const isDockerAvailable = await this.isDockerAvailable();
     
     if (!isDockerAvailable) {
-      // Fallback to local shell (with warning)
+      // Fallback to local shell (with warning). Never run destructive commands
+      // directly on the host, even in this static convenience path.
+      const safety = assessCommandSafety(options.command);
+      if (!safety.safe) {
+        const message =
+          `Refused to run a potentially destructive command on the host (no container sandbox): ${safety.reason}. ` +
+          `Command: ${options.command}`;
+        console.warn('[SandboxTool] ' + message);
+        return {
+          stdout: '',
+          stderr: message,
+          exitCode: 1,
+          command: options.command,
+          executionTime: 0,
+        };
+      }
       console.warn('Docker not available, falling back to local shell execution');
-      
+
       const result = await CrossPlatformShell.exec(options.command, {
         cwd: options.cwd || workspaceRoot,
         timeout: options.timeout,
