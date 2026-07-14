@@ -481,7 +481,7 @@ export function createCodeSearchTools(
   // probe_find_symbol tool
   const probeFindSymbolTool: ToolDefinition = {
     name: 'probe_find_symbol',
-    description: 'Find a symbol (function, class, method, variable) by name. Returns file, line, and signature.',
+      description: 'Find a symbol (function, class, method, variable) by name. Returns file, line, endLine, and signature.',
     inputSchema: {
       type: 'object',
       properties: {

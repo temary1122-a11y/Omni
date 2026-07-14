@@ -9,6 +9,8 @@ export interface SymbolLocation {
   file: string;
   /** 1-based line number */
   line: number;
+  /** Optional 1-based end line */
+  endLine?: number;
   /** Optional signature / declaration text */
   signature?: string;
   /** Optional symbol kind */

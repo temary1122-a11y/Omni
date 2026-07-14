@@ -33,6 +33,7 @@ describe('BuiltInCodeIndex', () => {
     const loc = await idx.findSymbol('greet');
     expect(loc).not.toBeNull();
     expect(loc!.line).toBe(2);
+    expect(loc!.endLine).toBe(4);
     expect(loc!.kind).toBe('function');
     expect(loc!.signature).toContain('function greet');
   });
