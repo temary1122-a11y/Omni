@@ -5,6 +5,7 @@ import { RequestClassifier } from './RequestClassifier';
 import { ModelSelector } from './ModelSelector';
 import type { RouterHealthMonitor } from '../core/RouterHealthMonitor';
 import { hasProviderKey } from './providerUtils';
+import { budgetMaxTierRank, priceLabelToTier, tierRank, type CostTier } from './pricingTiers';
 
 export type Provider = 'kilo-gateway' | 'openrouter' | 'codik' | 'ollama' | 'fallback';
 
@@ -102,7 +103,7 @@ export class ModelRouter {
         throw new Error(`No model available for role ${request.agentRole} on provider ${forceProvider}. Please configure models in settings.`);
       }
       const maxTokens = request.agentRole === 'coder' ? 4000 : 3500;
-      return { provider: forceProvider as any, modelId, costTier: this.budget === 'free' ? 'free' : 'cheap', maxTokens };
+      return { provider: forceProvider as any, modelId, costTier: this.costTierForModel(modelId), maxTokens };
     }
 
     // Use smart routing if enabled and prompt is provided
@@ -138,7 +139,7 @@ export class ModelRouter {
     }
     const maxTokens = request.agentRole === 'coder' ? 4000 : 3500;
 
-    return { provider, modelId, costTier: this.budget === 'free' ? 'free' : 'cheap', maxTokens };
+    return { provider, modelId, costTier: this.costTierForModel(modelId), maxTokens };
   }
 
   private getModelForRole(
@@ -163,18 +164,22 @@ export class ModelRouter {
       return roleOverride;
     }
 
-    // Kilo Gateway: drive selection from the indexed free-models registry instead of a
-    // hardcoded single model. Returns undefined if no model is available.
-    if (provider === 'kilo-gateway') {
-      if (effectiveBudget === 'high') return 'gpt-4o';
-      if (effectiveBudget === 'normal' || effectiveBudget === 'low') return 'gpt-4o-mini';
-      const indexed = this.selectFreeModelForProvider('kilo-gateway', role);
-      return indexed;
+    // Non-free budget: prefer the most capable PAID model within the budget tier,
+    // indexed from the live provider catalog (ModelIndexer.syncModels). This is
+    // what wires "powerful paid models via the same routers" into routing.
+    if (effectiveBudget !== 'free') {
+      const paid = this.selectPaidModelForProvider(provider, role, budgetMaxTierRank(effectiveBudget));
+      if (paid) return paid;
+
+      // Legacy kilo-gateway fallback when the live paid catalog has not been indexed
+      // (offline / no API key) — preserves the previous hardcoded behavior.
+      if (provider === 'kilo-gateway') {
+        return effectiveBudget === 'high' ? 'gpt-4o' : 'gpt-4o-mini';
+      }
     }
 
-    // Prefer a registry-indexed free model for this role+provider (populated by
-    // ModelIndexer.syncModels / free-models-index.md). This is what actually wires
-    // the model-index module into routing instead of the hardcoded table below.
+    // Free path (also the credits-exhausted path): prefer a registry-indexed free
+    // model for this role+provider (populated by ModelIndexer / free-models-index.md).
     const indexed = this.selectFreeModelForProvider(provider, role);
     if (indexed) return indexed;
 
@@ -183,6 +188,13 @@ export class ModelRouter {
     if (roleModel) return roleModel;
 
     return undefined; // No model available - caller should handle this
+  }
+
+  /** Cost tier of a model, resolved from the capability registry when known. */
+  private costTierForModel(modelId: string): CostTier {
+    const cap = this.capabilityRegistry.getModel(modelId);
+    if (cap) return priceLabelToTier(cap.price);
+    return this.budget === 'free' ? 'free' : 'cheap';
   }
 
   /**
@@ -222,7 +234,7 @@ export class ModelRouter {
       candidates.push({
         provider,
         modelId,
-        costTier: this.budget === 'free' ? 'free' : 'cheap',
+        costTier: this.costTierForModel(modelId),
         maxTokens: role === 'coder' ? 4000 : 3500,
       });
     };
@@ -241,7 +253,26 @@ export class ModelRouter {
       if (pm) add(this.preferredProvider, pm);
     }
 
-    // 2. Capability registry indexed models
+    // 2. On a non-free budget, try the best PAID model per provider first so the
+    //    chain leads with powerful paid models when the user has credits.
+    const effectiveBudget = this.freeOnly ? 'free' : this.budget;
+    if (effectiveBudget !== 'free') {
+      const maxRank = budgetMaxTierRank(effectiveBudget);
+      for (const provider of registryOrder) {
+        try {
+          const paid = this.selectPaidModelForProvider(provider, role, maxRank);
+          if (paid) add(provider, paid);
+          else if (provider === 'kilo-gateway') {
+            add('kilo-gateway', effectiveBudget === 'high' ? 'gpt-4o' : 'gpt-4o-mini');
+          }
+        } catch {
+          // skip
+        }
+      }
+    }
+
+    // 3. Capability registry indexed FREE models (always present as safe fallback,
+    //    so a 402/credits-exhausted paid attempt can degrade to free in one pass).
     for (const provider of registryOrder) {
       try {
         const indexed = this.selectFreeModelForProvider(provider, role);
@@ -251,14 +282,14 @@ export class ModelRouter {
       }
     }
 
-    // 3. Other providers' hardcoded tables
+    // 4. Other providers' hardcoded tables
     for (const provider of registryOrder) {
       if (provider === this.preferredProvider) continue;
       const model = PROVIDER_MODELS[provider]?.[role];
       if (model) add(provider, model);
     }
 
-    // 4. Safe ultimate fallbacks (only ollama since it's local)
+    // 5. Safe ultimate fallbacks (only ollama since it's local)
     add('ollama', 'llama3.2');
 
     return candidates;
@@ -278,6 +309,40 @@ export class ModelRouter {
         m.roleSuitability.some((r) => r.toLowerCase() === role.toLowerCase() || r.toLowerCase() === 'all')
       );
       return (forRole ?? candidates[0]).modelId;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Pick the most capable PAID model (cost tier between cheap and `maxRank`) for a
+   * role+provider from the indexed capability registry. Prefers the highest tier
+   * within budget, then benchmark score, then context window. Returns undefined
+   * when the provider has no indexed paid model within budget.
+   */
+  private selectPaidModelForProvider(
+    provider: Provider,
+    role: AgentRole,
+    maxRank: number
+  ): string | undefined {
+    try {
+      const inBudget = this.capabilityRegistry.getModelsByProvider(provider).filter((m) => {
+        const rank = tierRank(priceLabelToTier(m.price));
+        return rank >= 1 && rank <= maxRank; // paid only (exclude free), within budget
+      });
+      if (inBudget.length === 0) return undefined;
+      const forRole = inBudget.filter((m) =>
+        m.roleSuitability.some((r) => r.toLowerCase() === role.toLowerCase() || r.toLowerCase() === 'all')
+      );
+      const pool = forRole.length > 0 ? forRole : inBudget;
+      pool.sort((a, b) => {
+        const ra = tierRank(priceLabelToTier(a.price));
+        const rb = tierRank(priceLabelToTier(b.price));
+        if (rb !== ra) return rb - ra; // most powerful tier within budget first
+        if (b.benchmarks.mtBench !== a.benchmarks.mtBench) return b.benchmarks.mtBench - a.benchmarks.mtBench;
+        return b.contextWindow - a.contextWindow;
+      });
+      return pool[0].modelId;
     } catch {
       return undefined;
     }

@@ -30,5 +30,8 @@ test('model indexer never selects the dead qwen coder free model', async () => {
   const models = indexer.getModels();
   expect(models.find((m) => m.modelId === 'qwen/qwen-2.5-coder-32b-instruct:free') === undefined, 'dead qwen must be gone');
   expect(models.find((m) => m.modelId === 'meta-llama/llama-3.3-70b-instruct:free') !== undefined, 'live free llama present');
-  expect(models.find((m) => m.modelId === 'some/paid-model') === undefined, 'paid model must be excluded from free index');
+  // Paid models are now indexed (blocker #2) so budget=normal/high can route to them.
+  const paid = models.find((m) => m.modelId === 'some/paid-model');
+  expect(paid !== undefined, 'paid model must now be indexed for paid budgets');
+  expect(paid !== undefined && paid.price !== 'Free', 'paid model must carry a non-free cost tier');
 });
