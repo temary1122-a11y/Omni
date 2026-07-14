@@ -80,6 +80,7 @@ export type TranslationKey =
   | 'chat.idle'
   | 'chat.generationInProgress'
   | 'chat.clear'
+  | 'commentary.title'
   | 'reasoning.title'
   | 'reasoning.noThoughts'
   | 'reasoning.closeDetail'
@@ -182,6 +183,7 @@ export const ru: Record<TranslationKey, string> = {
   'chat.idle': 'Простой',
   'chat.generationInProgress': 'Генерация в процессе…',
   'chat.clear': 'Очистить',
+  'commentary.title': 'Комментарий',
   'reasoning.title': 'Рассуждение',
   'reasoning.noThoughts': 'Мыслей пока нет.',
   'reasoning.closeDetail': 'Закрыть',
