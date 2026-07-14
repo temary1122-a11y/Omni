@@ -277,6 +277,17 @@ pre,
   animation-delay: 0.4s;
 }
 
+.omni-chat-workspace {
+  min-width: 0;
+}
+
+@media (max-width: 1260px) {
+  .omni-chat-workspace {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) minmax(360px, 0.9fr);
+  }
+}
+
 /* --- Reduced motion ------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
   *,
