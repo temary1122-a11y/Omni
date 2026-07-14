@@ -116,7 +116,8 @@ export class MemoryFacade {
    */
   buildMemoryContextBlock(query: string, limit?: number): string {
     const results = this.selectiveRetrieve(query, limit ?? 3, 0.3);
-    if (results.length === 0) return '';
+    const skills = this.findTopSkills(query, undefined, Math.min(limit ?? 3, 3));
+    if (results.length === 0 && skills.length === 0) return '';
 
     const lines = results.map((r) => {
       const ep = r.episode;
@@ -125,7 +126,19 @@ export class MemoryFacade {
       return `[${ep.type}@${agentId}] ${excerpt}`;
     });
 
-    const block = `System (relevant memory):\n${lines.join('\n')}\n`;
+    const skillLines = skills.map((s) => {
+      const score = Math.round(s.score * 100);
+      return `[${s.skill.category}] ${s.skill.name} (${score}% match) — ${s.reason}`;
+    });
+
+    const parts: string[] = [];
+    if (lines.length > 0) {
+      parts.push(`System (relevant memory):\n${lines.join('\n')}\n`);
+    }
+    if (skillLines.length > 0) {
+      parts.push(`System (relevant skills):\n${skillLines.join('\n')}\n`);
+    }
+    const block = parts.join('\n');
     // Truncate to maxPromptMemoryChars to avoid token overflow
     return block.length <= this.maxPromptMemoryChars
       ? block
@@ -152,6 +165,18 @@ export class MemoryFacade {
     context?: Record<string, any>
   ): SkillMatch | null {
     return this.memory.findBestSkill(query, category, context);
+  }
+
+  /**
+   * Find the top-N skill matches for a query.
+   */
+  findTopSkills(
+    query: string,
+    category?: Skill['category'],
+    limit = 3,
+    context?: Record<string, any>
+  ): SkillMatch[] {
+    return this.memory.findTopSkills(query, category, limit, context);
   }
 
   /**

@@ -107,6 +107,15 @@ describe('HierarchicalMemory', () => {
     expect(match?.skill.id === id, 'findBestSkill returns registered skill');
   });
 
+  test('findTopSkills returns a ranked shortlist', () => {
+    const hm = new HierarchicalMemory();
+    hm.registerSkill({ name: 'design landing page', description: 'create landing page layouts', category: 'workflow', metadata: {} });
+    hm.registerSkill({ name: 'debug api', description: 'trace server errors', category: 'tool', metadata: {} });
+    const matches = hm.findTopSkills('landing page design', undefined, 2);
+    expect(matches.length === 2, 'findTopSkills returns a shortlist');
+    expect(matches[0].skill.name.includes('landing'), 'top match should be the relevant skill');
+  });
+
   test('semanticSearch / findKnowledgePath / getKnowledgeSubgraph', () => {
     const hm = new HierarchicalMemory();
     hm.addKnowledgeEdge('AuthService', 'TokenManager', 'manages');
@@ -212,6 +221,15 @@ describe('MemoryFacade', () => {
 
     f.clear();
     expect(f.getDiagnostics().episodicMemory.episodeCount === 0, 'clear empties facade');
+  });
+
+  test('buildMemoryContextBlock includes top skill matches when relevant', () => {
+    const f = facade();
+    f.registerSkill({ name: 'plan rollout', description: 'turn goals into phased plans', category: 'workflow', metadata: {} });
+    f.registerSkill({ name: 'ship safely', description: 'verify before delivery', category: 'strategy', metadata: {} });
+    const block = f.buildMemoryContextBlock('phased rollout plan');
+    expect(block.includes('relevant skills'), 'block should include a skills section');
+    expect(block.includes('plan rollout'), 'block should surface the matching skill');
   });
 
   test('getInstance is a singleton ignoring later config', () => {
