@@ -4,6 +4,7 @@ import { LLMClient, LLMResponse } from '../routing/LLMClient';
 import { RouterHealthMonitor, HealthStatus } from './RouterHealthMonitor';
 import type { IpcMessage } from '../../shared/types';
 import { hasProviderKey } from '../routing/providerUtils';
+import { sleep } from '../util/async';
 
 export interface FallbackStrategy {
   maxRetries: number;
@@ -240,7 +241,7 @@ export class ResilientModelRouter extends ModelRouter {
       }
 
       if (attempt < this.strategy.maxRetries - 1) {
-        await this.delay(this.strategy.retryDelayMs * (attempt + 1));
+        await sleep(this.strategy.retryDelayMs * (attempt + 1));
       }
     }
 
@@ -325,9 +326,6 @@ export class ResilientModelRouter extends ModelRouter {
     this.requestCounts.set(key, current + 1);
   }
 
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
 
   getHealthStatus(): HealthStatus[] {
     return this.health.getAllStatuses();

@@ -2,6 +2,7 @@ import type { Phase, AgentRole, AgentStatus, HandoffContract, ContextPacket, Art
 import { EventBus } from './EventBus';
 import { PhaseEngine } from './PhaseEngine';
 import { OrchestrationPolicy, OrchestrationState, OrchestrationAction } from './OrchestrationPolicy';
+import { sleep, backoffDelayMs } from '../util/async';
 
 export interface AgentState {
   agentId: string;
@@ -314,8 +315,7 @@ export class AgentSupervisor {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (attempt < maxRetries) {
-          const delay = retryBaseDelayMs * Math.pow(2, attempt);
-          await this.sleep(delay);
+          await sleep(backoffDelayMs(attempt, { baseMs: retryBaseDelayMs }));
         }
       }
     }
@@ -362,7 +362,4 @@ export class AgentSupervisor {
     });
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

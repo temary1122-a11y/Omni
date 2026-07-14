@@ -6,6 +6,7 @@ import type { ResilientModelRouter } from '../core/ResilientModelRouter';
 import type { EventBus } from '../core/EventBus';
 import * as path from 'path';
 import * as fs from 'fs';
+import { extractJsonFromLLMResponse } from '../util/llmJson';
 
 const SECRET_PATTERNS = [
   /api[_-]?key\s*[:=]\s*['"][^'"]{8,}['"]/i,
@@ -170,7 +171,7 @@ async function safeLlmSecurityReview(
       return { findings: [] };
     }
 
-    const raw = extractJsonFromLLMResponse(res.content, res.reasoning);
+    const raw = extractJsonFromLLMResponse(res.content, res.reasoning, '');
     if (!raw) {
       emitSecurityReviewWarning(eventBus, 'LLM security review returned no parseable response');
       return { findings: [] };
@@ -250,44 +251,3 @@ function selectReviewFiles(contract: HandoffContract, workspaceRoot: string): { 
   return scored.map((s) => ({ rel: s.rel, content: s.content }));
 }
 
-function extractJsonFromLLMResponse(content: string | undefined, reasoning: string | undefined): string {
-  const candidates = [content, reasoning].filter(Boolean) as string[];
-
-  for (const text of candidates) {
-    if (!text) continue;
-
-    const stripped = text.replace(/```(?:json)?\s*([\s\S]*?)```/g, '$1').trim();
-    try {
-      JSON.parse(stripped);
-      return stripped;
-    } catch {
-    }
-
-    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      const extracted = codeBlockMatch[1].trim();
-      try {
-        JSON.parse(extracted);
-        return extracted;
-      } catch {
-      }
-    }
-
-    const arrayMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
-    if (arrayMatch) {
-      try {
-        JSON.parse(arrayMatch[0]);
-        return arrayMatch[0].trim();
-      } catch {
-      }
-    }
-
-    try {
-      JSON.parse(text);
-      return text;
-    } catch {
-    }
-  }
-
-  return '';
-}
