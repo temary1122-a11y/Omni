@@ -172,6 +172,8 @@ export class PromptOrchestrator {
             prompt,
             this.conversationHistory
           );
+          const conversationConfidence = await nextAgent.evaluateConversation(this.conversationHistory);
+          const effectiveConfidence = Math.min(response.confidence, conversationConfidence);
 
           const message: AgentMessage = {
             from: agentId,
@@ -180,8 +182,9 @@ export class PromptOrchestrator {
             response: response.content,
             timestamp: Date.now(),
             metadata: {
-              confidence: response.confidence,
+              confidence: effectiveConfidence,
               needsMoreInfo: response.needsMoreInfo,
+              conversationConfidence,
             },
           };
 
@@ -204,11 +207,14 @@ export class PromptOrchestrator {
           }
 
           // If response indicates more info needed, break and let user provide
-          if (response.needsMoreInfo) {
+          const clarificationThreshold = Math.min(0.65, this.options.convergenceThreshold * 0.8);
+          if (response.needsMoreInfo || effectiveConfidence < clarificationThreshold) {
             this.options.eventBus.emit({
               type: 'ERROR_OCCURRED',
               payload: {
-                error: 'Agent needs more information from user',
+                error: response.needsMoreInfo
+                  ? 'Agent needs more information from user'
+                  : `Conversation confidence too low (${effectiveConfidence.toFixed(2)})`,
                 phase: 'self-prompting' as Phase as Phase,
                 recoverable: true,
               } as any,
