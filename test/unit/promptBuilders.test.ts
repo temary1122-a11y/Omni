@@ -91,14 +91,21 @@ test('LPB6 buildSystemPrompt appends goal', () => {
   expect(out.includes('Plan feature'), 'system prompt should append current task/goal');
 });
 
-test('LPB7 buildUserPrompt with workspaceSnapshot includes fileTree', () => {
+test('LPB7 buildSystemPrompt adds a language directive for non-English goals', () => {
+  const b = new LayeredPromptBuilder();
+  b.addLayer({ name: 'sys', content: 'You are helpful.', priority: 100 });
+  const out = b.buildSystemPrompt({ agentId: 'a', phase: 'planning', goal: 'Сделай лендинг' } as any);
+  expect(out.includes('Respond in Russian'), 'system prompt should preserve the user language');
+});
+
+test('LPB8 buildUserPrompt with workspaceSnapshot includes fileTree', () => {
   const b = new LayeredPromptBuilder();
   const ctx = { agentId: 'a', phase: 'build', goal: 'Do it', workspaceSnapshot: { fileTree: ['a.ts', 'b.ts'] } as any };
   const out = b.buildUserPrompt(ctx);
   expect(out.includes('a.ts'), 'user prompt should include fileTree when workspaceSnapshot present');
 });
 
-test('LPB8 buildUserPrompt without workspaceSnapshot returns empty base', () => {
+test('LPB9 buildUserPrompt without workspaceSnapshot returns empty base', () => {
   const b = new LayeredPromptBuilder();
   const ctx = { agentId: 'a', phase: 'build', goal: 'Do it' } as any;
   const out = b.buildUserPrompt(ctx);
