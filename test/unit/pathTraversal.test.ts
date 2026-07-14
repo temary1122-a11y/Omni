@@ -85,12 +85,13 @@ test('PT4 write_file cannot escape the workspace root', async () => {
 
 test('PT5 SandboxTool.executeWithFallback refuses destructive host commands', async () => {
   const root = tmp();
-  // The static fallback only runs on the host when Docker is unavailable; when a
-  // daemon is reachable it throws instead. Only assert the safety gate when the
-  // fallback path is actually exercised.
-  const dockerUp = await SandboxTool.isDockerAvailable();
-  if (dockerUp) return;
-  const res = await SandboxTool.executeWithFallback({ command: 'rm -rf /' }, root);
-  expect(res.exitCode === 1, 'destructive command must be refused');
-  expect(String(res.stderr).toLowerCase().includes('destructive'), 'refusal reason surfaced');
+  const original = SandboxTool.isDockerAvailable;
+  try {
+    SandboxTool.isDockerAvailable = async () => false;
+    const res = await SandboxTool.executeWithFallback({ command: 'rm -rf /' }, root);
+    expect(res.exitCode === 1, 'destructive command must be refused');
+    expect(String(res.stderr).toLowerCase().includes('destructive'), 'refusal reason surfaced');
+  } finally {
+    SandboxTool.isDockerAvailable = original;
+  }
 });
