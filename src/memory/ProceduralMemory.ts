@@ -103,25 +103,40 @@ export class ProceduralMemory {
     category?: Skill['category'],
     context?: Record<string, any>
   ): SkillMatch | null {
+    return this.rankSkills(query, category, context, 1)[0] ?? null;
+  }
+
+  findTopSkills(
+    query: string,
+    category?: Skill['category'],
+    limit = 3,
+    context?: Record<string, any>
+  ): SkillMatch[] {
+    return this.rankSkills(query, category, context, limit);
+  }
+
+  private rankSkills(
+    query: string,
+    category?: Skill['category'],
+    context?: Record<string, any>,
+    limit?: number
+  ): SkillMatch[] {
     const candidates = Array.from(this.skills.values()).filter(skill => {
       if (category && skill.category !== category) return false;
       if (skill.successRate < this.config.successRateThreshold) return false;
       return true;
     });
 
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) return [];
 
-    // Score each candidate
     const matches = candidates.map(skill => ({
       skill,
       score: this.calculateMatchScore(skill, query, context),
       reason: this.generateMatchReason(skill, query),
     }));
 
-    // Sort by score and return best
     matches.sort((a, b) => b.score - a.score);
-
-    return matches[0];
+    return typeof limit === 'number' ? matches.slice(0, limit) : matches;
   }
 
   findSkillsByCategory(category: Skill['category']): Skill[] {

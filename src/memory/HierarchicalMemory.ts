@@ -108,6 +108,18 @@ export class HierarchicalMemory {
   }
 
   /**
+   * Get the top-N skill matches for a query.
+   */
+  findTopSkills(
+    query: string,
+    category?: Skill['category'],
+    limit = 3,
+    context?: Record<string, any>
+  ): SkillMatch[] {
+    return this.proceduralMemory.findTopSkills(query, category, limit, context);
+  }
+
+  /**
    * Get skills by category.
    */
   getSkillsByCategory(category: Skill['category']): Skill[] {
