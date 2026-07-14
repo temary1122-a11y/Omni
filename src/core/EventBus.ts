@@ -54,6 +54,7 @@ export class EventBus {
       SYMBOL_RESOLVED: 'symbol_resolved',
       SEMANTIC_EDIT_APPLIED: 'semantic_edit',
       API_KEY_PROMPT: 'agent_status',
+      MODEL_CATALOG: 'agent_status',
     };
     return map[eventType] ?? 'phase_transition';
   }

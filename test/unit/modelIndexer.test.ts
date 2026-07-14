@@ -1,4 +1,7 @@
 import { test, expect } from '../harness';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { ModelIndexer } from '../../src/routing/ModelIndexer';
 
 test('C static fallback models are loaded from registry', () => {
@@ -15,4 +18,33 @@ test('C static fallback models are loaded from registry', () => {
     models.length > 0,
     'static fallback models should be available'
   );
+});
+
+test('C loadIndex reads a JSON model catalog from disk', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-model-index-'));
+  const indexPath = path.join(dir, 'model-index.md');
+  try {
+    fs.writeFileSync(
+      indexPath,
+      JSON.stringify([
+        {
+          modelId: 'test/provider-model:free',
+          provider: 'openrouter',
+          price: 'free',
+          contextWindow: 4096,
+          benchmarks: { mmlu: 1, gsm8k: 2, humanEval: 3, mtBench: 4 },
+          roleSuitability: ['coder'],
+        },
+      ]),
+      'utf-8'
+    );
+
+    const indexer = new ModelIndexer();
+    await indexer.loadIndex(indexPath);
+
+    const models = indexer.getModels();
+    expect(models.some((m) => m.modelId === 'test/provider-model:free'), 'loadIndex should read the file-backed model catalog');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -126,6 +126,11 @@ export interface ProviderStatusPayload {
   provider: string;
   hasKey: boolean;
   budget: string;
+  preferredProvider?: string;
+}
+
+export interface ModelCatalogPayload {
+  providers: Record<string, string[]>;
 }
 
 export interface LlmCallPayload {
@@ -247,6 +252,7 @@ export type BackendEvent =
   | { type: 'INDEX_LOADED'; payload: { count: number } }
   | { type: 'API_KEY_PROMPT'; payload: ApiKeyPromptPayload }
   | { type: 'INDEX_UPDATED'; payload: { providers: string[] } }
+  | { type: 'MODEL_CATALOG'; payload: ModelCatalogPayload }
   | { type: 'WORKSPACE_TREE'; payload: { root: string; tree: WorkspaceFile[] } }
   | { type: 'BACKEND_READY'; payload: { version: string } };
 

@@ -52,6 +52,10 @@ export function SettingsPanel() {
   const exportSession = useOmniStore((s) => s.exportSession);
   const useSupervisor = useOmniStore((s) => s.useSupervisor);
   const setUseSupervisor = useOmniStore((s) => s.setUseSupervisor);
+  const budget = useOmniStore((s) => s.budget);
+  const setBudget = useOmniStore((s) => s.setBudget);
+  const preferredProvider = useOmniStore((s) => s.preferredProvider);
+  const setPreferredProvider = useOmniStore((s) => s.setPreferredProvider);
   const providerInfo = useOmniStore((s) => s.providerInfo);
 
   const selectStyle: CSSProperties = {
@@ -91,6 +95,39 @@ export function SettingsPanel() {
           ) : (
             <p style={{ margin: 0, fontSize: 11, color: DESC }}>{t('panel.modelCatalogLoading')}</p>
           )}
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: DESC }}>
+            Smart-free routes across providers when free keys exist; manual selection uses the live catalog.
+          </p>
+        </section>
+
+        <section>
+          {fieldLabel('Режим бюджета')}
+          <select
+            value={budget}
+            onChange={(e) => setBudget(e.target.value as typeof budget)}
+            aria-label="Режим бюджета"
+            style={selectStyle}
+          >
+            <option value="free">Smart-free / только free</option>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+          </select>
+        </section>
+
+        <section>
+          {fieldLabel('Предпочтительный провайдер')}
+          <select
+            value={preferredProvider}
+            onChange={(e) => setPreferredProvider(e.target.value)}
+            aria-label="Предпочтительный провайдер"
+            style={selectStyle}
+          >
+            <option value="openrouter">OpenRouter</option>
+            <option value="kilo-gateway">Kilo Gateway</option>
+            <option value="codik">Codik</option>
+            <option value="ollama">Ollama</option>
+          </select>
         </section>
 
         <section>

@@ -118,7 +118,12 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
               ...s.providerInfo,
               [payload.provider]: { hasKey: payload.hasKey, budget: payload.budget },
             },
+            preferredProvider: payload.preferredProvider ?? s.preferredProvider,
           }));
+          break;
+
+        case 'MODEL_CATALOG':
+          set({ modelCatalog: payload.providers });
           break;
 
         case 'ERROR_OCCURRED':
@@ -516,11 +521,21 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
       get().updateSettings({ budget });
     },
 
+    setPreferredProvider(provider: string): void {
+      set({ preferredProvider: provider });
+      get().updateSettings({ preferredProvider: provider });
+    },
+
     setDemoMode(enabled: boolean): void {
       set({ demoMode: enabled });
     },
 
-    updateSettings(settings: { chatVerbosity?: ChatVerbosity; useSupervisor?: boolean; budget?: OmniState['budget'] }): void {
+    updateSettings(settings: {
+      chatVerbosity?: ChatVerbosity;
+      useSupervisor?: boolean;
+      budget?: OmniState['budget'];
+      preferredProvider?: string;
+    }): void {
       get().sendCommand('updateSettings', settings as Record<string, unknown>);
     },
 

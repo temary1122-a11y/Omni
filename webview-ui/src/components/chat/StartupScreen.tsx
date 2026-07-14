@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Clock, Trash2 } from 'lucide-react';
+import { Plus, Clock, Trash2, KeyRound, ExternalLink } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useOmniStore } from '@/store/omniStore';
 
@@ -13,6 +13,7 @@ export function StartupScreen({ onStartNewSession }: { onStartNewSession: (goal:
   const recentSessions = useOmniStore((s) => s.recentSessions);
   const loadSession = useOmniStore((s) => s.loadSession);
   const deleteSession = useOmniStore((s) => s.deleteSession);
+  const openExternal = useOmniStore((s) => s.openExternal);
 
   const handleStart = () => {
     if (value.trim()) {
@@ -71,6 +72,52 @@ export function StartupScreen({ onStartNewSession }: { onStartNewSession: (goal:
         <p style={{ color: DESC, fontSize: 'var(--font-size-base, 14px)', maxWidth: 400, margin: 0 }}>
           Мульти-агентная система для планирования, сборки и верификации кода
         </p>
+      </div>
+
+      <div style={{ width: '100%', maxWidth: 520, marginBottom: 24 }}>
+        <div style={{ marginBottom: 8, color: DESC, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+          API ключи для Smart-free
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => openExternal('https://openrouter.ai/keys')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: '#161b22',
+              border: `1px solid ${BORDER}`,
+              color: FG,
+              cursor: 'pointer',
+            }}
+          >
+            <KeyRound size={14} />
+            OpenRouter
+            <ExternalLink size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => openExternal('https://api.kilo.ai/account/api-keys')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: '#161b22',
+              border: `1px solid ${BORDER}`,
+              color: FG,
+              cursor: 'pointer',
+            }}
+          >
+            <KeyRound size={14} />
+            Kilo Gateway
+            <ExternalLink size={12} />
+          </button>
+        </div>
       </div>
 
       {/* New Session Input */}
