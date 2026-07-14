@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { EventBus } from '../core/EventBus';
 import { RouterHealthMonitor } from '../core/RouterHealthMonitor';
 import { ModelSelection } from './ModelRouter';
@@ -56,16 +58,59 @@ export class ModelIndexer {
   constructor(options: ModelIndexerOptions = {}) {
     this.eventBus = options.eventBus;
     this.healthMonitor = options.healthMonitor;
-    this.apiKeys = (options as any).apiKeys ?? {};
+    this.apiKeys = options.apiKeys ?? {};
   }
 
   // Загрузить индекс из JSON-файла (пока заглушка)
   async loadIndex(filePath: string): Promise<void> {
-    // TODO: реализовать чтение файла
-    // Пока используем статические данные из model-index.json
-    this.models = this.getStaticFallbackModels();
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      this.models = this.parseIndexContent(content, filePath);
+    } catch (error) {
+      console.warn(`ModelIndexer: failed to read ${filePath}, falling back to bundled index`, error);
+      this.models = this.getStaticFallbackModels();
+    }
+    this.emitCatalog();
     // Emit event using generic type to avoid TypeScript error
     this.eventBus?.emit({ type: 'INDEX_LOADED', payload: { count: this.models.length } });
+  }
+
+  private parseIndexContent(content: string, filePath: string): ModelMetadata[] {
+    const raw = content.trim();
+    const candidate = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? raw;
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (!Array.isArray(parsed)) throw new Error('index file must contain a JSON array');
+      return parsed
+        .map((item) => this.normalizeModel(item))
+        .filter((m): m is ModelMetadata => Boolean(m));
+    } catch (error) {
+      console.warn(`ModelIndexer: invalid index content in ${path.basename(filePath)}, using fallback`, error);
+      return this.getStaticFallbackModels();
+    }
+  }
+
+  private normalizeModel(item: any): ModelMetadata | null {
+    if (!item || typeof item !== 'object') return null;
+    const modelId = typeof item.modelId === 'string' ? item.modelId : typeof item.id === 'string' ? item.id : '';
+    const provider = typeof item.provider === 'string' ? item.provider : '';
+    if (!modelId || !provider) return null;
+    const benchmarks = item.benchmarks ?? {};
+    return {
+      modelId,
+      provider,
+      price: typeof item.price === 'string' ? item.price : 'free',
+      contextWindow: Number.isFinite(item.contextWindow) ? Number(item.contextWindow) : 8192,
+      benchmarks: {
+        mmlu: Number(benchmarks.mmlu ?? 0) || 0,
+        gsm8k: Number(benchmarks.gsm8k ?? 0) || 0,
+        humanEval: Number(benchmarks.humanEval ?? 0) || 0,
+        mtBench: Number(benchmarks.mtBench ?? 0) || 0,
+      },
+      roleSuitability: Array.isArray(item.roleSuitability)
+        ? item.roleSuitability.filter((role: unknown) => typeof role === 'string')
+        : ['all'],
+    };
   }
 
   // Статический офлайн-фоллбэк (используется loadIndex и как база для refreshIndex)
@@ -131,11 +176,22 @@ export class ModelIndexer {
     }
 
     this.models = Array.from(merged.values());
+    this.emitCatalog();
     // Emit event using generic type to avoid TypeScript error
     this.eventBus?.emit({
       type: 'INDEX_UPDATED',
       payload: { providers: PROVIDER_ENDPOINTS.map((e) => e.provider) },
     });
+  }
+
+  private emitCatalog(): void {
+    const providers = this.models.reduce<Record<string, string[]>>((acc, model) => {
+      const key = model.provider;
+      if (!acc[key]) acc[key] = [];
+      if (!acc[key].includes(model.modelId)) acc[key].push(model.modelId);
+      return acc;
+    }, {});
+    this.eventBus?.emit({ type: 'MODEL_CATALOG', payload: { providers } });
   }
 
   // Выбрать лучшую модель для роли и опциональных требований

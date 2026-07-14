@@ -162,7 +162,7 @@ export class OmniOrchestrator {
 
     // Initialize resilient router with health monitoring
     this.router = new ModelRouter(config.budget, this.workspaceRoot);
-    this.modelIndexer = new ModelIndexer({ eventBus: this.eventBus });
+    this.modelIndexer = new ModelIndexer({ eventBus: this.eventBus, apiKeys: this.apiKeys });
     this.router.setPreferredProvider(config.preferredProvider);
     this.router.setApiKeys(this.apiKeys);
 
@@ -192,6 +192,10 @@ export class OmniOrchestrator {
 
     // Initialize tool registry and context governor
     this.toolRegistry = new ToolRegistry(this.eventBus);
+    void this.modelIndexer
+      .loadIndex(this.resolveBundledModelIndexPath())
+      .then(() => this.modelIndexer.refreshIndex())
+      .catch((error) => console.warn('OmniOrchestrator: model index warmup failed', error));
 
     // Phase 3: register memory, artifact, and help tools
     const memTools = createMemoryTools(this.sharedMemory);
@@ -428,6 +432,7 @@ export class OmniOrchestrator {
         provider: resolved,
         hasKey,
         budget: config.budget,
+        preferredProvider: config.preferredProvider,
       },
     });
     if (hasKey) {
@@ -902,6 +907,18 @@ async requestApiKeyPrompt(payload: { tools: { toolName: string; envVar: string; 
           t.signupUrl &&
           !(this.apiKeys[t.apiKeyEnv] || process.env[t.apiKeyEnv])
       );
+  }
+
+  private resolveBundledModelIndexPath(): string {
+    const candidates = [
+      path.join(this.workspaceRoot, 'src', 'routing', 'model-index.md'),
+      path.join(__dirname, '..', '..', '..', 'src', 'routing', 'model-index.md'),
+      path.join(__dirname, '..', '..', '..', 'plans', 'free-models-index.md'),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    return candidates[0];
   }
 
   private parseJsonSafe(text: string): any {

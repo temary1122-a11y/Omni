@@ -31,6 +31,7 @@ export interface OmniState {
   pendingApiKeyPrompt: ApiKeyPromptPayload | null;
   artifacts: string[];
   providerInfo: Record<string, { hasKey: boolean; budget: string }>;
+  preferredProvider: string;
   lastError: { error: string; phase?: Phase; recoverable: boolean } | null;
   modelCatalog: Record<string, string[]>;
   workspaceTree: WorkspaceFile[];
@@ -72,11 +73,13 @@ export interface OmniActions {
   setChatVerbosity(v: ChatVerbosity): void;
   setUseSupervisor(enabled: boolean): void;
   setBudget(budget: OmniState['budget']): void;
+  setPreferredProvider(provider: string): void;
   setDemoMode(enabled: boolean): void;
   updateSettings(settings: {
     chatVerbosity?: ChatVerbosity;
     useSupervisor?: boolean;
     budget?: OmniState['budget'];
+    preferredProvider?: string;
   }): void;
   loadSession(sessionId: string): void;
   deleteSession(sessionId: string): void;
@@ -113,6 +116,7 @@ export const initialOmniState: OmniState = {
   pendingApiKeyPrompt: null,
   artifacts: [],
   providerInfo: {},
+  preferredProvider: 'openrouter',
   lastError: null,
   modelCatalog: {},
   workspaceTree: [],

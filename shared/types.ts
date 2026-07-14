@@ -279,7 +279,7 @@ export type IpcMessage =
   | { type: 'CHAT_MESSAGE'; payload: { role: 'user' | 'assistant' | 'system'; content: string; timestamp: number } }
   | { type: 'COMMAND_OUTPUT'; payload: { command: string; output: string; exitCode: number | null } }
   | { type: 'LLM_CALL'; payload: { provider: string; model: string; agentRole: AgentRole; phase: Phase; usedFallback: boolean; error?: string; endpoint?: string } }
-  | { type: 'PROVIDER_STATUS'; payload: { provider: string; hasKey: boolean; budget: string } }
+  | { type: 'PROVIDER_STATUS'; payload: { provider: string; hasKey: boolean; budget: string; preferredProvider?: string } }
   | { type: 'ERROR_OCCURRED'; payload: { error: string; phase: Phase; recoverable: boolean } }
   | { type: 'SANDBOX_EVENT'; payload: { type: string; data?: Record<string, unknown> } }
   | { type: 'REASONING_TRACE'; payload: AgentReasoning }
@@ -295,6 +295,7 @@ export type IpcMessage =
   | { type: 'INDEX_LOADED'; payload: { count: number } }
   | { type: 'API_KEY_PROMPT'; payload: { requestId: string; tools: { toolName: string; envVar: string; signupUrl: string }[]; fallbackAvailable: boolean; reason: string } }
   | { type: 'INDEX_UPDATED'; payload: { providers: string[] } }
+  | { type: 'MODEL_CATALOG'; payload: { providers: Record<string, string[]> } }
   | { type: 'WORKSPACE_TREE'; payload: { root: string; tree: WorkspaceFile[] } }
   | { type: 'BACKEND_READY'; payload: { version: string } };
 

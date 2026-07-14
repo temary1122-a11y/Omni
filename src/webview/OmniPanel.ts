@@ -87,6 +87,7 @@ export async function handleCockpitMessage(msg: {
   keys?: Record<string, string>;
   agentId?: string;
   budget?: 'free' | 'low' | 'normal' | 'high';
+  preferredProvider?: 'openrouter' | 'kilo-gateway' | 'codik' | 'ollama';
   useSupervisor?: boolean;
   chatVerbosity?: string;
   mode?: string;
@@ -200,6 +201,7 @@ export async function handleCockpitMessage(msg: {
       case 'updateSettings':
         await ConfigManager.updateSettings({
           budget: (msg as { budget?: 'free' | 'low' | 'normal' | 'high' }).budget,
+          preferredProvider: (msg as { preferredProvider?: 'openrouter' | 'kilo-gateway' | 'codik' | 'ollama' }).preferredProvider,
           useSupervisor: (msg as { useSupervisor?: boolean }).useSupervisor,
         });
         getOrchestrator()?.refreshApiKeys();
@@ -315,7 +317,7 @@ export class OmniPanel {
     try {
       const registry = new FreeModelCapabilityRegistry();
       const grouped = registry.getFreeModelsGroupedByProvider();
-      this.bridge.send({ type: 'modelCatalog', payload: { providers: grouped } } as any);
+      this.bridge.send({ type: 'MODEL_CATALOG', payload: { providers: grouped } } as any);
     } catch (e) {
       console.debug('[OmniPanel] failed to post model catalog:', e);
     }

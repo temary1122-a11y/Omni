@@ -254,7 +254,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const config = vscode.workspace.getConfiguration('omni');
         const registry = new FreeModelCapabilityRegistry();
         const grouped = registry.getFreeModelsGroupedByProvider();
-        const models: Array<{ label: string; description: string; provider: string }> = [];
+        const models: Array<{ label: string; description: string; provider?: string; smartFree?: boolean }> = [
+          {
+            label: 'Smart-free (auto)',
+            description: 'Pick free models automatically per role/provider',
+            smartFree: true,
+          },
+        ];
         for (const [provider, modelList] of Object.entries(grouped)) {
           for (const m of modelList) {
             models.push({
@@ -268,7 +274,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           placeHolder: 'Select LLM model',
         });
         if (selected) {
-          await config.update('preferredProvider', selected.provider, vscode.ConfigurationTarget.Global);
+          if (selected.smartFree) {
+            await config.update('budget', 'free', vscode.ConfigurationTarget.Global);
+            await config.update('orchestratorModel', '', vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage('Smart-free routing enabled');
+            return;
+          }
+          await config.update('preferredProvider', selected.provider!, vscode.ConfigurationTarget.Global);
           await config.update('orchestratorModel', selected.label, vscode.ConfigurationTarget.Global);
           vscode.window.showInformationMessage(`Orchestrator model set to: ${selected.label}`);
         }
