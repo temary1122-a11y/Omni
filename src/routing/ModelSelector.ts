@@ -73,7 +73,7 @@ export class ModelSelector {
     // FREE model for the role (falling back to any free model). This honours the
     // "free" contract even when a paid model scores a higher benchmark.
     if (this.config.budget === 'free') {
-      const bestFree = this.bestFreeForRole(agentRole);
+      const bestFree = this.bestFreeForRole(agentRole, classification);
       if (bestFree) return this.buildSelection(bestFree, classification);
       // No free model exists at all — fall through to the default selection.
     }
@@ -121,14 +121,17 @@ export class ModelSelector {
     );
     if (pool.length === 0) return undefined;
 
-    const preferHigherTier = classification.complexity !== 'simple';
     pool.sort((a, b) => {
       if (b.benchmarks.mtBench !== a.benchmarks.mtBench) {
         return b.benchmarks.mtBench - a.benchmarks.mtBench;
       }
       const ra = tierRank(priceLabelToTier(a.price));
       const rb = tierRank(priceLabelToTier(b.price));
-      return preferHigherTier ? rb - ra : ra - rb;
+      if (rb !== ra) return classification.complexity === 'simple' ? ra - rb : rb - ra;
+      const contextScoreA = this.contextPreferenceScore(a.contextWindow, classification);
+      const contextScoreB = this.contextPreferenceScore(b.contextWindow, classification);
+      if (contextScoreB !== contextScoreA) return contextScoreB - contextScoreA;
+      return a.modelId.localeCompare(b.modelId);
     });
     return pool[0];
   }
@@ -138,7 +141,10 @@ export class ModelSelector {
    * sorted by MT-Bench. Used to honour a free budget even when a paid model
    * would otherwise win on benchmark score.
    */
-  private bestFreeForRole(agentRole: AgentRole): ModelCapability | undefined {
+  private bestFreeForRole(
+    agentRole: AgentRole,
+    classification: RequestClassification
+  ): ModelCapability | undefined {
     const freeForRole = this.registry
       .getModels()
       .filter(
@@ -148,13 +154,26 @@ export class ModelSelector {
             (r) => r.toLowerCase() === agentRole.toLowerCase() || r.toLowerCase() === 'all'
           )
       )
-      .sort((a, b) => b.benchmarks.mtBench - a.benchmarks.mtBench);
+      .sort((a, b) => {
+        if (b.benchmarks.mtBench !== a.benchmarks.mtBench) {
+          return b.benchmarks.mtBench - a.benchmarks.mtBench;
+        }
+        const contextScoreA = this.contextPreferenceScore(a.contextWindow, classification);
+        const contextScoreB = this.contextPreferenceScore(b.contextWindow, classification);
+        if (contextScoreB !== contextScoreA) return contextScoreB - contextScoreA;
+        return a.modelId.localeCompare(b.modelId);
+      });
     if (freeForRole.length > 0) return freeForRole[0];
 
     const anyFree = this.registry
       .getModels()
       .filter((m) => m.price === 'Free' || m.price === 'free')
-      .sort((a, b) => b.benchmarks.mtBench - a.benchmarks.mtBench);
+      .sort((a, b) => {
+        if (b.benchmarks.mtBench !== a.benchmarks.mtBench) {
+          return b.benchmarks.mtBench - a.benchmarks.mtBench;
+        }
+        return b.contextWindow - a.contextWindow;
+      });
     return anyFree[0];
   }
 
@@ -283,6 +302,22 @@ export class ModelSelector {
     const required = classification.dimensions.contextLengthRequirements;
     
     return Math.min(modelLimit, required);
+  }
+
+  private contextPreferenceScore(contextWindow: number, classification: RequestClassification): number {
+    const required = classification.dimensions.contextLengthRequirements;
+    const ratio = contextWindow / Math.max(required, 1);
+    const toolHeavy = classification.dimensions.toolUseDetection || classification.dimensions.codePresence || classification.dimensions.multiHopRequirements;
+
+    if (classification.complexity === 'simple' && !toolHeavy) {
+      return 1 / Math.max(contextWindow, 1);
+    }
+
+    if (toolHeavy || classification.complexity === 'complex') {
+      return ratio >= 1 ? ratio : ratio * 0.5;
+    }
+
+    return Math.abs(1 - ratio);
   }
 
   private explainSelection(

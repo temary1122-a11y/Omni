@@ -17,10 +17,47 @@ function makeRegistry(): FreeModelCapabilityRegistry {
   return registry;
 }
 
+function makeTieRegistry(): FreeModelCapabilityRegistry {
+  const registry = new FreeModelCapabilityRegistry(repoRoot);
+  registry.addModels([
+    { modelId: 'sel-context-small', provider: 'openrouter', price: 'Free', contextWindow: 4096, benchmarks: { mmlu: 70, gsm8k: 70, humanEval: 70, mtBench: 8.0 }, roleSuitability: ['coder', 'all'] },
+    { modelId: 'sel-context-large', provider: 'openrouter', price: 'Free', contextWindow: 32768, benchmarks: { mmlu: 70, gsm8k: 70, humanEval: 70, mtBench: 8.0 }, roleSuitability: ['coder', 'all'] },
+  ]);
+  return registry;
+}
+
 function classification(complexity: 'simple' | 'medium' | 'complex'): RequestClassification {
   return {
     complexity, confidence: 0.8,
     dimensions: { tokenCount: 100, codePresence: false, toolUseDetection: false, reasoningComplexity: 0, domainSpecificity: 0, multiHopRequirements: false, creativityLevel: 0, precisionNeeds: 0, contextLengthRequirements: 4096, latencySensitivity: 0, costTolerance: 0, securityRequirements: 0, languageComplexity: 0, outputFormatConstraints: [] },
+    reasoning: '',
+  };
+}
+
+function classificationWithContext(
+  complexity: 'simple' | 'medium' | 'complex',
+  overrides: Partial<RequestClassification['dimensions']>
+): RequestClassification {
+  return {
+    complexity,
+    confidence: 0.8,
+    dimensions: {
+      tokenCount: 100,
+      codePresence: false,
+      toolUseDetection: false,
+      reasoningComplexity: 0,
+      domainSpecificity: 0,
+      multiHopRequirements: false,
+      creativityLevel: 0,
+      precisionNeeds: 0,
+      contextLengthRequirements: 4096,
+      latencySensitivity: 0,
+      costTolerance: 0,
+      securityRequirements: 0,
+      languageComplexity: 0,
+      outputFormatConstraints: [],
+      ...overrides,
+    },
     reasoning: '',
   };
 }
@@ -73,4 +110,26 @@ test('M5 updateConfig switches budget and changes selection', () => {
   selector.updateConfig({ budget: 'high' });
   const highSel = selector.select(classification('medium'), 'researcher', [...PROVIDERS]);
   expect(highSel.modelId === 'sel-paid-openai', 'after switching to high budget, paid model should be selected');
+});
+
+test('M6 code-heavy tasks prefer larger context models when capability is tied', () => {
+  const registry = makeTieRegistry();
+  const selector = new ModelSelector(registry, { budget: 'free' });
+  const sel = selector.select(
+    classificationWithContext('complex', { codePresence: true, toolUseDetection: true, multiHopRequirements: true, contextLengthRequirements: 20000 }),
+    'coder',
+    [...PROVIDERS]
+  );
+  expect(sel.modelId === 'sel-context-large', `code-heavy selection should prefer the larger context model, got ${sel.modelId}`);
+});
+
+test('M7 simple tasks prefer smaller context models when capability is tied', () => {
+  const registry = makeTieRegistry();
+  const selector = new ModelSelector(registry, { budget: 'free' });
+  const sel = selector.select(
+    classificationWithContext('simple', { contextLengthRequirements: 2048 }),
+    'coder',
+    [...PROVIDERS]
+  );
+  expect(sel.modelId === 'sel-context-small', `simple selection should prefer the smaller context model, got ${sel.modelId}`);
 });
