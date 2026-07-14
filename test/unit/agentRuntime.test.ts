@@ -85,3 +85,26 @@ test('AR4 write_file tool produces an artifact captured by the runtime', async (
   expect(written && written.content === content, 'artifact content should match what was written');
   expect(fs.existsSync(path.join(tmpDir, rel)), 'the file should actually exist on disk');
 });
+
+test('AR5 LLM failures reject instead of becoming successful final responses', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-rt-'));
+  createdTmpDirs.push(tmpDir);
+  const router = new FakeModelRouter([]);
+  (router as any).call = async () => {
+    throw new Error('provider connection lost');
+  };
+  const rt = buildRuntime(tmpDir, router, [], {});
+
+  let caught: unknown;
+  try {
+    await rt.run('goal', ctxPacket);
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught instanceof Error, 'runtime should reject when the model router throws');
+  expect(
+    caught instanceof Error && caught.message.includes('AgentRuntime [researcher] LLM call failed: provider connection lost'),
+    'runtime should preserve model failure context'
+  );
+});

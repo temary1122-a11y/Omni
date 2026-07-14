@@ -28,9 +28,28 @@ export async function detectRunInstructions(deps: RunInstructionsDeps): Promise<
           exitCode: result.exitCode,
         },
       });
+      if (result.exitCode !== 0) {
+        const message = result.exitCode === null
+          ? 'npm install timed out'
+          : `npm install exited with code ${result.exitCode}`;
+        deps.eventBus.emit({
+          type: 'ERROR_OCCURRED',
+          payload: { error: message, phase: 'deliver', recoverable: true },
+        });
+        return `Dependency installation failed (${message}). Run: cd generated && npm install && npm start`;
+      }
       return 'cd generated && npm install && npm start';
-    } catch {
-      return 'cd generated && npm install && npm start';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.eventBus.emit({
+        type: 'ERROR_OCCURRED',
+        payload: {
+          error: `Unable to install generated dependencies: ${message}`,
+          phase: 'deliver',
+          recoverable: true,
+        },
+      });
+      return `Dependency installation failed (${message}). Run: cd generated && npm install && npm start`;
     }
   }
   if (fs.existsSync(readmePath)) return 'See generated/README.md for instructions';

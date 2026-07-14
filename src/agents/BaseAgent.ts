@@ -131,9 +131,8 @@ export abstract class BaseAgent {
 
   /**
    * Best-effort structured LLM call used by advisory agents (audit/security).
-   * Never throws: on any error or provider fallback it returns null so the caller
-   * can silently degrade to heuristic-only behavior. This keeps the audit/security
-   * phase from dying when the network, budget, or model is unavailable.
+   * Never throws: on any error or provider fallback it reports the degradation and
+   * returns null so the caller can continue with heuristic-only behavior.
    */
   protected async callLlmJsonReview(
     router: LlmReviewRouter | undefined,
@@ -145,12 +144,20 @@ export abstract class BaseAgent {
     if (!router || !apiKeys) return null;
     try {
       const res = await router.call(request, prompt, systemPrompt, apiKeys);
-      if (res.usedFallback) return null;
+      if (res.usedFallback) {
+        this.emitCommentary(request.phase, `LLM review unavailable: ${res.error || 'provider fallback'}`);
+        return null;
+      }
       const raw = this.extractJsonFromLLMResponse(res.content, res.reasoning);
-      if (!raw) return null;
+      if (!raw) {
+        this.emitCommentary(request.phase, 'LLM review returned no parseable response');
+        return null;
+      }
       const parsed = JSON.parse(raw);
       return { raw, parsed };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitCommentary(request.phase, `LLM review failed: ${message}`);
       return null;
     }
   }

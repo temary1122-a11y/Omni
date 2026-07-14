@@ -1090,7 +1090,10 @@ ${decisionsText}`.trim();
       for (const e of entries.slice(0, 30)) {
         if (e.isFile()) files.push(e.name);
       }
-    } catch { /* empty */ }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to scan workspace "${this.workspaceRoot}": ${message}`);
+    }
     const techStack: string[] = [];
     if (fs.existsSync(path.join(this.workspaceRoot, 'package.json'))) techStack.push('Node.js');
     if (files.some((f) => f.endsWith('.ts'))) techStack.push('TypeScript');

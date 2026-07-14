@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { HandoffContract, ContextPacket } from '../../shared/types';
+import { EventBus } from '../../src/core/EventBus';
 
 let tmp: string | undefined;
 afterEach(() => {
@@ -89,5 +90,23 @@ describe('SecurityAgent', () => {
     const report = JSON.parse(manifest.artifacts[0].content) as any;
     expect(report.findings.some((f: any) => /password/i.test(f.issue))).toBe(true);
     expect(report.findings.every((f: any) => !f.issue.startsWith('LLM'))).toBe(true);
+  });
+
+  it('reports optional LLM review failures while keeping heuristic findings', async () => {
+    const ws = makeWs({ 'app.ts': "const password = 'hunter2';\n" });
+    const router = new FakeModelRouter([]);
+    (router as any).call = async () => {
+      throw new Error('security model unavailable');
+    };
+    const eventBus = new EventBus();
+    const commentary: string[] = [];
+    eventBus.on('AGENT_COMMENTARY', (event) => commentary.push((event as any).payload.message));
+
+    const agent = new SecurityAgent(router, { openrouter: 'k' }, eventBus, true);
+    const manifest = await agent.execute(makeContract(ws, ['app.ts']), ws);
+    const report = JSON.parse(manifest.artifacts[0].content) as any;
+
+    expect(report.findings.some((f: any) => /password/i.test(f.issue))).toBe(true);
+    expect(commentary.some((message) => message.includes('security model unavailable'))).toBe(true);
   });
 });
