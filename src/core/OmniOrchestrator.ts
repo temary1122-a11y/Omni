@@ -167,7 +167,11 @@ export class OmniOrchestrator {
     this.router.setApiKeys(this.apiKeys);
 
     // ToolManager is now live: provisions agent tooling (exa/tavily/puppeteer/playwright) into the workspace.
-    this.sandboxTool = new SandboxTool({ workspaceRoot: this.workspaceRoot, eventBus: this.eventBus });
+    this.sandboxTool = new SandboxTool({
+      workspaceRoot: this.workspaceRoot,
+      eventBus: this.eventBus,
+      allowLocalExecution: config.allowLocalExecution,
+    });
     this.semanticEditor = new SemanticEditor(this.workspaceRoot);
     this.toolManager = new ToolManager(this.eventBus, this.sandboxTool, this.workspaceRoot);
     this.useSupervisor = config.useSupervisor;

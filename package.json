@@ -146,6 +146,12 @@
           "default": false,
           "description": "Enable LLM-assisted code-quality audit (advisory; soft NEEDS_REVIEW only, never hard FAIL).",
           "order": 10
+        },
+        "omni.allowLocalExecution": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow agent-generated commands to run directly on your machine when the Docker sandbox is unavailable. WARNING: this removes container isolation — commands execute on the host. A block-list of destructive commands is always refused. Leave OFF (default) to require Docker for autonomous execution.",
+          "order": 11
         }
       }
     },
