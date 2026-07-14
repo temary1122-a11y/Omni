@@ -4,6 +4,7 @@ import { ModelSelection } from './ModelRouter';
 import type { ModelCapability } from './ModelCapabilityRegistry';
 import { FreeModelCapabilityRegistry } from './ModelCapabilityRegistry';
 import { PROVIDER_API_KEY_ENV, PROVIDER_MODEL_LIST_ENDPOINTS } from './providerUtils';
+import { classifyPriceLabel } from './pricingTiers';
 
 export interface ModelMetadata {
   modelId: string;
@@ -83,11 +84,9 @@ export class ModelIndexer {
   private mapItem(item: any, provider: ProviderEndpoint['provider']): ModelMetadata {
     const promptPrice = parseFloat(item?.pricing?.prompt);
     const completionPrice = parseFloat(item?.pricing?.completion);
-    const isFree =
-      !isNaN(promptPrice) &&
-      promptPrice === 0 &&
-      (isNaN(completionPrice) || completionPrice === 0);
-    const price = isFree ? 'Free' : 'Paid';
+    // Classify into Free / cheap / mid / premium so paid "powerful" models can be
+    // indexed and matched against the user's budget tier (see pricingTiers.ts).
+    const price = classifyPriceLabel(promptPrice, completionPrice);
     const role = (item?.architecture?.modality ?? 'text').includes('image') ? 'all' : (item?.name ?? '').toLowerCase().includes('coder') ? 'coder' : 'all';
     return {
       modelId: item.id,
@@ -121,8 +120,10 @@ export class ModelIndexer {
       try {
         const fetched = await this.fetchProviderModels(endpoint);
         for (const m of fetched) {
-          if (m.price !== 'Free') continue; // only free in free-index
-          merged.set(m.modelId, m); // fetched free wins over static
+          // Index both free and paid models so budget=normal/high can route to
+          // powerful paid models through the same providers. Free-only routing is
+          // still enforced downstream by budget/credits-exhausted logic.
+          merged.set(m.modelId, m); // fetched entry wins over static
         }
       } catch {
         // skip this provider, keep static fallback — never throw

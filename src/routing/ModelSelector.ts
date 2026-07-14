@@ -2,6 +2,7 @@ import type { ModelCapability, ModelCapabilityRegistry } from './ModelCapability
 import type { RequestClassification } from './RequestClassifier';
 import type { AgentRole } from '../../shared/types';
 import type { Provider } from './ModelRouter';
+import { budgetMaxTierRank, priceLabelToTier, tierRank, isWithinBudget } from './pricingTiers';
 
 export interface ModelSelection {
   provider: Provider;
@@ -77,23 +78,16 @@ export class ModelSelector {
       // No free model exists at all — fall through to the default selection.
     }
 
-    // Complexity-based hints (only meaningful when not already resolved above).
-    if (classification.complexity === 'simple') {
-      const bestForComplexity = this.registry.getBestModelForComplexity('simple');
-      if (bestForComplexity && bestForComplexity.price === 'Free') {
-        return this.buildSelection(bestForComplexity, classification);
-      }
+    // Non-free budget: pick the best model for the role whose cost tier is within
+    // the budget (low→cheap, normal→mid, high→premium). This lets powerful paid
+    // models be selected while never exceeding the configured budget tier.
+    const bestWithinBudget = this.bestModelForRoleWithinBudget(agentRole, classification);
+    if (bestWithinBudget) {
+      return this.buildSelection(bestWithinBudget, classification);
     }
 
-    if (classification.complexity === 'complex') {
-      const bestForComplexity = this.registry.getBestModelForComplexity('complex');
-      if (bestForComplexity) {
-        return this.buildSelection(bestForComplexity, classification);
-      }
-    }
-
-    // Fallback to role-based selection (may be a paid model on non-free budgets).
-    if (bestForRole) {
+    // Fallback to role-based selection when nothing matched the budget filter.
+    if (bestForRole && isWithinBudget(bestForRole.price, this.config.budget)) {
       return this.buildSelection(bestForRole, classification);
     }
 
@@ -105,6 +99,38 @@ export class ModelSelector {
 
     // If no models in registry, use default
     return this.buildDefaultSelection(agentRole, classification);
+  }
+
+  /**
+   * Best model for a role whose cost tier fits the configured (non-free) budget.
+   * Ranks by benchmark first (real capability when populated); ties break toward
+   * the most powerful affordable tier for medium/complex tasks and the cheapest
+   * tier for simple tasks.
+   */
+  private bestModelForRoleWithinBudget(
+    agentRole: AgentRole,
+    classification: RequestClassification
+  ): ModelCapability | undefined {
+    const maxRank = budgetMaxTierRank(this.config.budget);
+    const pool = this.registry.getModels().filter(
+      (m) =>
+        tierRank(priceLabelToTier(m.price)) <= maxRank &&
+        m.roleSuitability.some(
+          (r) => r.toLowerCase() === agentRole.toLowerCase() || r.toLowerCase() === 'all'
+        )
+    );
+    if (pool.length === 0) return undefined;
+
+    const preferHigherTier = classification.complexity !== 'simple';
+    pool.sort((a, b) => {
+      if (b.benchmarks.mtBench !== a.benchmarks.mtBench) {
+        return b.benchmarks.mtBench - a.benchmarks.mtBench;
+      }
+      const ra = tierRank(priceLabelToTier(a.price));
+      const rb = tierRank(priceLabelToTier(b.price));
+      return preferHigherTier ? rb - ra : ra - rb;
+    });
+    return pool[0];
   }
 
   /**
@@ -150,7 +176,7 @@ export class ModelSelector {
     for (const model of allModels) {
       if (chain.length >= this.config.maxFallbackDepth) break;
       if (usedModels.has(model.modelId)) continue;
-      if (model.price !== 'Free' && this.config.budget === 'free') continue;
+      if (!isWithinBudget(model.price, this.config.budget)) continue;
 
       const selection = this.buildSelection(model, classification);
       chain.push({
