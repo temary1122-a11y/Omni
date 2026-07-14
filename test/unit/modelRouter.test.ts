@@ -36,6 +36,25 @@ test('A2 kilo-gateway researcher resolves to a model', () => {
   expect(sel.modelId.length > 0, `modelId should not be empty (got ${sel.modelId})`);
 });
 
+test('A2b smart-free rotates free candidate chain across keyed providers', () => {
+  const router = new ModelRouter('free', repoRoot);
+  router.setPreferredProvider('openrouter');
+  router.setApiKeys({
+    openrouter: 'k',
+    'kilo-gateway': 'k',
+    codik: '',
+    ollama: '',
+  });
+
+  const coderChain = router.getCandidateChain('coder');
+  const researcherChain = router.getCandidateChain('researcher');
+
+  expect(coderChain.length > 0 && researcherChain.length > 0, 'candidate chains should not be empty');
+  expect(coderChain[0].provider === 'kilo-gateway', `coder chain should start on kilo-gateway, got ${coderChain[0].provider}`);
+  expect(researcherChain[0].provider === 'openrouter', `researcher chain should start on openrouter, got ${researcherChain[0].provider}`);
+  expect(coderChain.some((c) => c.provider === 'kilo-gateway' || c.provider === 'openrouter'), 'smart-free chain should stay within keyed providers');
+});
+
 test('A3 no-key case falls back to preferred provider', () => {
   const router = new ModelRouter('free', repoRoot);
   router.setPreferredProvider('openrouter');

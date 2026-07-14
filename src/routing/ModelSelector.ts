@@ -68,12 +68,13 @@ export class ModelSelector {
     reasoning: string;
   } {
     const bestForRole = this.registry.getBestModelForRole(agentRole);
+    const usableProviders = new Set(availableProviders);
 
     // On a FREE budget we must never resolve to a paid model — pick the best
     // FREE model for the role (falling back to any free model). This honours the
     // "free" contract even when a paid model scores a higher benchmark.
     if (this.config.budget === 'free') {
-      const bestFree = this.bestFreeForRole(agentRole, classification);
+      const bestFree = this.bestFreeForRole(agentRole, classification, usableProviders);
       if (bestFree) return this.buildSelection(bestFree, classification);
       // No free model exists at all — fall through to the default selection.
     }
@@ -81,18 +82,20 @@ export class ModelSelector {
     // Non-free budget: pick the best model for the role whose cost tier is within
     // the budget (low→cheap, normal→mid, high→premium). This lets powerful paid
     // models be selected while never exceeding the configured budget tier.
-    const bestWithinBudget = this.bestModelForRoleWithinBudget(agentRole, classification);
+    const bestWithinBudget = this.bestModelForRoleWithinBudget(agentRole, classification, usableProviders);
     if (bestWithinBudget) {
       return this.buildSelection(bestWithinBudget, classification);
     }
 
     // Fallback to role-based selection when nothing matched the budget filter.
-    if (bestForRole && isWithinBudget(bestForRole.price, this.config.budget)) {
+    if (bestForRole && isWithinBudget(bestForRole.price, this.config.budget) && usableProviders.has(this.mapProvider(bestForRole.provider))) {
       return this.buildSelection(bestForRole, classification);
     }
 
     // Ultimate fallback to any free model
-    const freeModels = this.registry.getModels().filter((m) => m.price === 'Free');
+    const freeModels = this.registry
+      .getModels()
+      .filter((m) => (m.price === 'Free' || m.price === 'free') && usableProviders.has(this.mapProvider(m.provider)));
     if (freeModels.length > 0) {
       return this.buildSelection(freeModels[0], classification);
     }
@@ -109,12 +112,14 @@ export class ModelSelector {
    */
   private bestModelForRoleWithinBudget(
     agentRole: AgentRole,
-    classification: RequestClassification
+    classification: RequestClassification,
+    availableProviders: Set<Provider>
   ): ModelCapability | undefined {
     const maxRank = budgetMaxTierRank(this.config.budget);
     const pool = this.registry.getModels().filter(
       (m) =>
         tierRank(priceLabelToTier(m.price)) <= maxRank &&
+        availableProviders.has(this.mapProvider(m.provider)) &&
         m.roleSuitability.some(
           (r) => r.toLowerCase() === agentRole.toLowerCase() || r.toLowerCase() === 'all'
         )
@@ -143,13 +148,15 @@ export class ModelSelector {
    */
   private bestFreeForRole(
     agentRole: AgentRole,
-    classification: RequestClassification
+    classification: RequestClassification,
+    availableProviders: Set<Provider>
   ): ModelCapability | undefined {
     const freeForRole = this.registry
       .getModels()
       .filter(
         (m) =>
           (m.price === 'Free' || m.price === 'free') &&
+          availableProviders.has(this.mapProvider(m.provider)) &&
           m.roleSuitability.some(
             (r) => r.toLowerCase() === agentRole.toLowerCase() || r.toLowerCase() === 'all'
           )
@@ -167,7 +174,7 @@ export class ModelSelector {
 
     const anyFree = this.registry
       .getModels()
-      .filter((m) => m.price === 'Free' || m.price === 'free')
+      .filter((m) => (m.price === 'Free' || m.price === 'free') && availableProviders.has(this.mapProvider(m.provider)))
       .sort((a, b) => {
         if (b.benchmarks.mtBench !== a.benchmarks.mtBench) {
           return b.benchmarks.mtBench - a.benchmarks.mtBench;
@@ -187,9 +194,10 @@ export class ModelSelector {
 
     const chain: ModelSelection[] = [];
     const usedModels = new Set([primary.modelId]);
+    const usableProviders = new Set(availableProviders);
 
     // Get all models sorted by suitability
-    const allModels = this.registry.getModels();
+    const allModels = this.registry.getModels().filter((m) => usableProviders.has(this.mapProvider(m.provider)));
     
     // Build fallback chain based on complexity and role
     for (const model of allModels) {
