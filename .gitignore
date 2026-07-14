@@ -2,6 +2,9 @@
 dist/
 node_modules/
 
+# Test coverage output
+coverage/
+
 # Compiled artifacts next to TypeScript sources
 shared/**/*.js
 shared/**/*.js.map
