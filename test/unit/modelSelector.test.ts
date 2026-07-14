@@ -133,3 +133,11 @@ test('M7 simple tasks prefer smaller context models when capability is tied', ()
   );
   expect(sel.modelId === 'sel-context-small', `simple selection should prefer the smaller context model, got ${sel.modelId}`);
 });
+
+test('M8 selection ignores unavailable providers in free mode', () => {
+  const registry = makeRegistry();
+  const selector = new ModelSelector(registry, { budget: 'free', preferredProvider: 'openrouter' });
+  const sel = selector.select(classification('medium'), 'researcher', ['openrouter']);
+  expect(sel.provider === 'openrouter', `selection should stay on the only available provider, got ${sel.provider}`);
+  expect(sel.modelId !== 'sel-free-kilo', 'selection must not pick a model from an unavailable provider');
+});

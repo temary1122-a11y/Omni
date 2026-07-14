@@ -110,10 +110,11 @@ export class ModelRouter {
     if (this.enableSmartRouting && prompt) {
       try {
         const classification = this.requestClassifier.classify(prompt);
+        const availableProviders = this.getUsableProviders(keys);
         const selection = this.modelSelector.select(
           classification,
           request.agentRole,
-          this.getAvailableProviders()
+          availableProviders
         );
 
         // Track cost and savings
@@ -205,8 +206,7 @@ export class ModelRouter {
    */
   getContextWindowForRole(role: AgentRole): number {
     try {
-      const provider = this.resolveProvider(this.apiKeys);
-      const modelId = this.getModelForRole(role, provider, this.budget);
+      const modelId = this.getCandidateChain(role)[0]?.modelId;
       if (!modelId) return 0;
       const cap = this.capabilityRegistry.getModel(modelId);
       if (cap && cap.contextWindow > 0) return cap.contextWindow;
@@ -225,6 +225,14 @@ export class ModelRouter {
   getCandidateChain(role: AgentRole): ModelSelection[] {
     const seen = new Set<string>();
     const candidates: ModelSelection[] = [];
+    const usableProviders = this.getUsableProviders(this.apiKeys);
+    const keyProviders = usableProviders.filter((provider) => provider !== 'ollama');
+    const freeProviderOrder =
+      keyProviders.length > 1 ? this.rotateProvidersByRole(keyProviders, role) : keyProviders;
+    const providerOrder: Provider[] =
+      freeProviderOrder.length > 0
+        ? [...freeProviderOrder, ...(usableProviders.includes('ollama') ? (['ollama'] as Provider[]) : [])]
+        : this.rotateProvidersByRole(['openrouter', 'kilo-gateway', 'codik'], role);
 
     const add = (provider: Provider, modelId: string) => {
       const key = `${provider}:${modelId}`;
@@ -239,26 +247,18 @@ export class ModelRouter {
       });
     };
 
-    const registryOrder: Provider[] = [
-      'openrouter',
-      'kilo-gateway',
-      'codik',
-      'ollama',
-      'fallback',
-    ];
+    const fallbackOrder: Provider[] = ['openrouter', 'kilo-gateway', 'codik', 'ollama'];
 
-    // 1. Preferred provider hardcoded table FIRST, to honor the user's preferredProvider.
-    if (this.preferredProvider !== 'fallback') {
-      const pm = PROVIDER_MODELS[this.preferredProvider]?.[role];
-      if (pm) add(this.preferredProvider, pm);
-    }
-
-    // 2. On a non-free budget, try the best PAID model per provider first so the
+    // 1. On a non-free budget, try the best PAID model per provider first so the
     //    chain leads with powerful paid models when the user has credits.
     const effectiveBudget = this.freeOnly ? 'free' : this.budget;
     if (effectiveBudget !== 'free') {
       const maxRank = budgetMaxTierRank(effectiveBudget);
-      for (const provider of registryOrder) {
+      const paidOrder =
+        this.preferredProvider !== 'fallback' && usableProviders.includes(this.preferredProvider)
+          ? [this.preferredProvider, ...usableProviders.filter((provider) => provider !== this.preferredProvider)]
+          : usableProviders;
+      for (const provider of paidOrder) {
         try {
           const paid = this.selectPaidModelForProvider(provider, role, maxRank);
           if (paid) add(provider, paid);
@@ -271,9 +271,9 @@ export class ModelRouter {
       }
     }
 
-    // 3. Capability registry indexed FREE models (always present as safe fallback,
+    // 2. Capability registry indexed FREE models (always present as safe fallback,
     //    so a 402/credits-exhausted paid attempt can degrade to free in one pass).
-    for (const provider of registryOrder) {
+    for (const provider of providerOrder) {
       try {
         const indexed = this.selectFreeModelForProvider(provider, role);
         if (indexed) add(provider, indexed);
@@ -282,17 +282,36 @@ export class ModelRouter {
       }
     }
 
-    // 4. Other providers' hardcoded tables
-    for (const provider of registryOrder) {
+    // 3. Other providers' hardcoded tables only for providers we can actually use.
+    for (const provider of (usableProviders.length > 0 ? usableProviders : fallbackOrder)) {
       if (provider === this.preferredProvider) continue;
       const model = PROVIDER_MODELS[provider]?.[role];
       if (model) add(provider, model);
     }
 
-    // 5. Safe ultimate fallbacks (only ollama since it's local)
-    add('ollama', 'llama3.2');
+    // 4. Safe ultimate fallback (local ollama if present)
+    if (usableProviders.includes('ollama') || usableProviders.length === 0) {
+      add('ollama', 'llama3.2');
+    }
 
     return candidates;
+  }
+
+  private getUsableProviders(apiKeys: Record<string, string> = this.apiKeys): Provider[] {
+    const providers: Provider[] = ['openrouter', 'kilo-gateway', 'codik', 'ollama'];
+    const keyed = providers.filter((provider) => provider !== 'ollama' && hasProviderKey(provider, apiKeys));
+    if (keyed.length > 0) {
+      return [...keyed, 'ollama'];
+    }
+    const preferred = this.preferredProvider === 'fallback' ? 'openrouter' : this.preferredProvider;
+    return preferred === 'ollama' ? ['ollama'] : [preferred, 'ollama'];
+  }
+
+  private rotateProvidersByRole(providers: Provider[], role: AgentRole): Provider[] {
+    if (providers.length <= 1) return [...providers];
+    const seed = Array.from(role).reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+    const offset = seed % providers.length;
+    return [...providers.slice(offset), ...providers.slice(0, offset)];
   }
 
   /**
