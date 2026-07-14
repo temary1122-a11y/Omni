@@ -64,4 +64,39 @@ describe('PromptOrchestrator', () => {
     const history = orchestrator.getHistory();
     expect(history.length === 0, 'history should be empty after clear');
   });
+
+  test('self-prompting loop stops immediately when an agent needs more info', async () => {
+    const bus = new EventBus();
+    const orchestrator = new PromptOrchestrator({ eventBus: bus, maxRounds: 3, convergenceThreshold: 0.8 });
+    let thirdAgentCalled = 0;
+
+    orchestrator.registerAgent({
+      agentId: 'planner',
+      generatePromptFor: async () => 'ask for clarification',
+      respondToPrompt: async () => ({ content: 'need details', confidence: 0.2, needsMoreInfo: true }),
+      evaluateConversation: async () => 0.2,
+    });
+    orchestrator.registerAgent({
+      agentId: 'coder',
+      generatePromptFor: async () => 'respond with details',
+      respondToPrompt: async () => ({ content: 'unused', confidence: 0.9, needsMoreInfo: true }),
+      evaluateConversation: async () => 0.9,
+    });
+    orchestrator.registerAgent({
+      agentId: 'verifier',
+      generatePromptFor: async () => 'should never be reached',
+      respondToPrompt: async () => {
+        thirdAgentCalled++;
+        return { content: 'unused', confidence: 0.9, needsMoreInfo: false };
+      },
+      evaluateConversation: async () => 0.9,
+    });
+
+    const result = await orchestrator.runSelfPromptingLoop('build landing page', 'planner');
+
+    expect(result.stopReason === 'needs_more_info', 'loop should stop with an explicit stop reason');
+    expect(result.converged === false, 'needs-more-info should not count as convergence');
+    expect(result.rounds === 1, 'loop should stop after the first agent asks for more info');
+    expect(thirdAgentCalled === 0, 'subsequent agents should not run once more info is needed');
+  });
 });
