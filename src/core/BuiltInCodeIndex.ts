@@ -68,6 +68,7 @@ export class BuiltInCodeIndex implements CodeIndex {
           return {
             file,
             line: i + 1,
+            endLine: this.findSymbolEndLine(lines, i),
             signature: lines[i].trim(),
             kind: this.inferKind(lines[i], options?.kind),
           };
@@ -138,5 +139,22 @@ export class BuiltInCodeIndex implements CodeIndex {
     if (/^\s*(export\s+)?(enum|const|let|var)\b/.test(s)) return 'constant';
     if (/^\s*(export\s+)?type\b/.test(s)) return 'type';
     return 'function';
+  }
+
+  private findSymbolEndLine(lines: string[], startIndex: number): number {
+    let depth = 0;
+    let sawOpenBrace = false;
+    for (let i = startIndex; i < lines.length && i < startIndex + 250; i++) {
+      for (const ch of lines[i]) {
+        if (ch === '{') {
+          depth++;
+          sawOpenBrace = true;
+        } else if (ch === '}' && sawOpenBrace) {
+          depth--;
+          if (depth <= 0) return i + 1;
+        }
+      }
+    }
+    return startIndex + 1;
   }
 }
