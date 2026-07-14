@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import type { MessagePart } from '@/types';
 import { cn } from '@/utils/cn';
-import { getToolIcon } from '@/utils/agentConfig';
+import { getToolIcon, getToolCategory } from '@/utils/agentConfig';
 import { monoBoxStyle } from '@/styles/mono';
 import { useOmniStore } from '@/store/omniStore';
 import { useTranslation } from '@/i18n';
+import { ChevronRight, Loader2, Check, AlertCircle } from 'lucide-react';
 
 type ToolPart = Extract<MessagePart, { type: 'tool_call' }>;
 
@@ -34,8 +35,13 @@ function TerminalView({ part }: { part: ToolPart }) {
   const output = s(part.output);
   return (
     <div style={monoBox}>
-      {command && <div style={{ color: 'var(--vscode-terminal-ansiGreen, #3fb950)' }}>$ {command}</div>}
-      {output && <div style={{ marginTop: command ? 6 : 0 }}>{output}</div>}
+      {command && (
+        <div style={{ color: 'var(--vscode-terminal-ansiGreen, #3fb950)', marginBottom: 4 }}>
+          <span style={{ color: 'var(--color-text-secondary, #8b949e)', marginRight: 4 }}>$</span>
+          {command}
+        </div>
+      )}
+      {output && <div style={{ marginTop: command ? 6 : 0, whiteSpace: 'pre-wrap' }}>{output}</div>}
     </div>
   );
 }
@@ -43,9 +49,6 @@ function TerminalView({ part }: { part: ToolPart }) {
 function BrowserView({ part }: { part: ToolPart }) {
   const openExternal = useOmniStore((s) => s.openExternal);
   const output = s(part.output);
-  // web_search/fetch_page return source URLs (often as "SOURCE <url>" lines);
-  // surface those as clickable links to the resource being studied instead of
-  // dumping raw text or a placeholder dash.
   const urls = extractUrls(output);
   const linkStyle: CSSProperties = {
     ...monoBox,
@@ -74,9 +77,6 @@ function BrowserView({ part }: { part: ToolPart }) {
       ) : (
         <div style={monoBox}>—</div>
       )}
-      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--vscode-descriptionForeground, #8b949e)' }}>
-        🔗 sources
-      </div>
     </div>
   );
 }
@@ -149,51 +149,126 @@ function renderBody(part: ToolPart) {
   return <ResultBody part={part} />;
 }
 
+// Category-based accent colors for visual differentiation
+const CATEGORY_COLORS: Record<string, string> = {
+  shell: '#3fb950',
+  file: '#58a6ff',
+  web: '#d29922',
+  plan: '#a78bfa',
+  default: '#8b949e',
+};
+
 export function ToolCard({ part }: { part: ToolPart }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(true);
   const status = part.status ?? 'running';
   const success = part.success;
+  const category = getToolCategory(part.toolName);
+  const accentColor = CATEGORY_COLORS[category] ?? CATEGORY_COLORS.default;
 
-  const badge = status === 'running'
-    ? { label: t('tool.running'), color: 'var(--vscode-terminal-ansiYellow, #d29922)' }
+  // Status icon
+  const StatusIcon = status === 'running'
+    ? () => <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
     : success
-      ? { label: t('tool.success'), color: 'var(--vscode-terminal-ansiGreen, #3fb950)' }
-      : { label: t('tool.error'), color: 'var(--vscode-terminal-ansiRed, #f85149)' };
+      ? () => <Check size={13} />
+      : () => <AlertCircle size={13} />;
+
+  const statusColor = status === 'running'
+    ? 'var(--color-warning, #d29922)'
+    : success
+      ? 'var(--color-success, #3fb950)'
+      : 'var(--color-error, #f85149)';
+
+  // Category label for the badge
+  const categoryLabel = category === 'shell' ? 'Terminal'
+    : category === 'file' ? 'File'
+    : category === 'web' ? 'Web'
+    : category === 'plan' ? 'Plan'
+    : 'Tool';
 
   return (
     <div
+      className="omni-tool-card omni-fade-up"
       style={{
-        background: 'var(--vscode-sideBar-background, #0d1117)',
-        border: '1px solid var(--vscode-panel-border, #30363d)',
-        borderRadius: 8,
-        padding: 10,
+        background: 'var(--color-bg-secondary, #0d1117)',
+        border: `1px solid var(--color-border, #30363d)`,
+        borderLeft: `3px solid ${accentColor}`,
+        borderRadius: 'var(--radius-md, 8px)',
+        padding: 0,
         margin: '6px 0',
+        overflow: 'hidden',
       }}
     >
+      {/* Header row */}
       <div
-        style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 10px',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
         onClick={() => setOpen((o) => !o)}
       >
-        <span style={{ fontSize: 16 }}>{getToolIcon(part.toolName)}</span>
-        <span style={{ fontWeight: 600, color: 'var(--vscode-foreground, #e6e6e6)', flex: 1 }}>{part.toolName}</span>
+        {/* Category icon */}
         <span
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: badge.color,
-            border: `1px solid ${badge.color}`,
-            borderRadius: 999,
-            padding: '1px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 24,
+            height: 24,
+            borderRadius: 'var(--radius-sm, 6px)',
+            fontSize: 13,
+            flexShrink: 0,
+            background: `${accentColor}1a`,
+            border: `1px solid ${accentColor}33`,
           }}
         >
-          {badge.label}
+          {getToolIcon(part.toolName)}
         </span>
-        <span style={{ color: 'var(--vscode-descriptionForeground, #8b949e)', fontSize: 12 }}>{open ? '▾' : '▸'}</span>
+
+        {/* Tool name + category */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 }}>
+          <span style={{ fontWeight: 600, color: 'var(--color-text-primary, #e6e6e6)', fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {part.toolName}
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--color-text-secondary, #8b949e)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            {categoryLabel}
+          </span>
+        </div>
+
+        {/* Status icon */}
+        <span style={{ display: 'flex', alignItems: 'center', color: statusColor, flexShrink: 0 }}>
+          <StatusIcon />
+        </span>
+
+        {/* Chevron */}
+        <ChevronRight
+          size={14}
+          style={{
+            color: 'var(--color-text-secondary, #8b949e)',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform 0.2s',
+            flexShrink: 0,
+          }}
+        />
       </div>
-      <div className={cn('tool-body', !open && 'tool-body--hidden')} style={{ marginTop: open ? 8 : 0, display: open ? 'block' : 'none' }}>
-        {renderBody(part)}
-      </div>
+
+      {/* Body */}
+      {open && (
+        <div
+          style={{
+            padding: '0 10px 10px',
+            borderTop: `1px solid var(--color-border-light, rgba(255,255,255,0.06))`,
+          }}
+        >
+          <div style={{ marginTop: 8 }}>
+            {renderBody(part)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

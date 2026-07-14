@@ -171,3 +171,13 @@ export function getToolIcon(toolName: string): string {
   }
   return TOOL_ICONS.default;
 }
+
+/** Categorize a tool by name for visual grouping in the UI. */
+export function getToolCategory(toolName: string): 'shell' | 'file' | 'web' | 'plan' | 'default' {
+  const lower = toolName.toLowerCase();
+  if (lower.includes('bash') || lower.includes('terminal') || lower.includes('shell') || lower.includes('execute')) return 'shell';
+  if (lower.includes('write_file') || lower.includes('read_file') || lower.includes('edit') || lower.includes('file')) return 'file';
+  if (lower.includes('search') || lower.includes('web') || lower.includes('browser') || lower.includes('fetch')) return 'web';
+  if (lower.includes('todo') || lower.includes('plan') || lower.includes('task')) return 'plan';
+  return 'default';
+}

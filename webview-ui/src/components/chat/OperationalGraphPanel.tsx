@@ -115,8 +115,12 @@ function placeOnArc<T extends GraphNodeData>(
 function GraphAutoFit({ nodeCount, edgeCount }: { nodeCount: number; edgeCount: number }) {
   const { fitView } = useReactFlow();
 
+  // Debounce fitView to avoid jank during rapid streaming events
   useEffect(() => {
-    fitView({ padding: 0.18, includeHiddenNodes: false, maxZoom: 1.1, minZoom: 0.45, duration: 250 });
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.18, includeHiddenNodes: false, maxZoom: 1.1, minZoom: 0.45, duration: 250 });
+    }, 300);
+    return () => clearTimeout(timer);
   }, [fitView, nodeCount, edgeCount]);
 
   return null;

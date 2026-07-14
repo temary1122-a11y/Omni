@@ -34,6 +34,7 @@ export interface OmniState {
   preferredProvider: string;
   lastError: { error: string; phase?: Phase; recoverable: boolean } | null;
   modelCatalog: Record<string, string[]>;
+  selectedModel: string | null;
   workspaceTree: WorkspaceFile[];
   workspaceRoot: string;
   scrollTargetPhase: Phase | null;
@@ -119,6 +120,7 @@ export const initialOmniState: OmniState = {
   preferredProvider: 'openrouter',
   lastError: null,
   modelCatalog: {},
+  selectedModel: null,
   workspaceTree: [],
   workspaceRoot: '',
   scrollTargetPhase: null,
