@@ -1,11 +1,20 @@
 import { OmniHarness } from './OmniHarness';
 import { SandboxCommandOptions, SandboxCommandResult } from '../../shared/types/sandbox';
 import { EventBus } from '../core/EventBus';
+import { assessCommandSafety } from './CommandSafety';
+import { CrossPlatformShell } from './CrossPlatformShell';
 
 export interface SandboxToolOptions {
   workspaceRoot: string;
   eventBus: EventBus;
   image?: string;
+  /**
+   * Allow running LLM-generated commands directly on the host when Docker/the
+   * container sandbox is unavailable. Defaults to false: without isolation,
+   * autonomous host execution is refused so untrusted commands never touch the
+   * real machine unless the user explicitly opts in (`omni.allowLocalExecution`).
+   */
+  allowLocalExecution?: boolean;
 }
 
 export class SandboxTool {
@@ -14,8 +23,18 @@ export class SandboxTool {
   private initializationPromise: Promise<void> | null = null;
   private useLocalFallback = false;
   private lastFallbackAt = 0;
+  private localExecutionWarned = false;
 
   constructor(private options: SandboxToolOptions) {}
+
+  /** Whether host-side execution without a container is permitted. */
+  private get allowLocalExecution(): boolean {
+    return this.options.allowLocalExecution === true;
+  }
+
+  setAllowLocalExecution(allow: boolean): void {
+    this.options.allowLocalExecution = allow;
+  }
 
   /**
    * Initialize the sandbox (lazy initialization)
@@ -77,10 +96,80 @@ export class SandboxTool {
     }
 
     if (this.useLocalFallback || !this.harness) {
-      return this.executeLocal(options);
+      return this.guardedExecuteLocal(options);
     }
 
     return await this.harness.executeCommand(options);
+  }
+
+  /**
+   * Gate host-side execution when no container sandbox is available. Enforces two
+   * boundaries before touching the real machine:
+   *   1. A block-list of destructive commands is ALWAYS refused, even if the user
+   *      opted into local execution.
+   *   2. If the user has not explicitly enabled `omni.allowLocalExecution`,
+   *      autonomous host execution is refused entirely (no isolation available).
+   */
+  private async guardedExecuteLocal(options: SandboxCommandOptions): Promise<SandboxCommandResult> {
+    this.warnNoSandboxOnce();
+
+    const safety = assessCommandSafety(options.command);
+    if (!safety.safe) {
+      const message =
+        `Refused to run a potentially destructive command on the host (no container sandbox): ${safety.reason}. ` +
+        `Command: ${options.command}`;
+      console.warn('[SandboxTool] ' + message);
+      this.emitSandboxEvent('command_blocked', {
+        command: options.command,
+        reason: safety.reason,
+      });
+      return this.refusedResult(options.command, message);
+    }
+
+    if (!this.allowLocalExecution) {
+      const message =
+        'Sandbox unavailable: refusing to run agent-generated commands directly on the host. ' +
+        'Start Docker Desktop for isolated execution, or explicitly enable "omni.allowLocalExecution" ' +
+        'to permit (non-isolated) host execution.';
+      console.warn('[SandboxTool] ' + message);
+      this.emitSandboxEvent('command_blocked', {
+        command: options.command,
+        reason: 'local execution not permitted (no sandbox)',
+      });
+      return this.refusedResult(options.command, message);
+    }
+
+    return this.executeLocal(options);
+  }
+
+  /** Emit a one-time warning that commands are running without container isolation. */
+  private warnNoSandboxOnce(): void {
+    if (this.localExecutionWarned) return;
+    this.localExecutionWarned = true;
+    this.emitSandboxEvent('sandbox_unavailable', {
+      allowLocalExecution: this.allowLocalExecution,
+      message: this.allowLocalExecution
+        ? 'Docker sandbox unavailable — commands run on the host WITHOUT isolation (omni.allowLocalExecution is enabled).'
+        : 'Docker sandbox unavailable — host execution is blocked. Enable Docker or omni.allowLocalExecution.',
+    });
+  }
+
+  private emitSandboxEvent(type: string, data: Record<string, unknown>): void {
+    try {
+      this.options.eventBus?.emit({ type: 'SANDBOX_EVENT', payload: { type, data } });
+    } catch {
+      /* eventBus is best-effort; never let telemetry break execution */
+    }
+  }
+
+  private refusedResult(command: string, message: string): SandboxCommandResult {
+    return {
+      stdout: '',
+      stderr: message,
+      exitCode: 1,
+      command,
+      executionTime: 0,
+    };
   }
 
   /**
@@ -89,7 +178,6 @@ export class SandboxTool {
    * land in the real workspace (agent write-boundaries still apply at the tool layer).
    */
   private async executeLocal(options: SandboxCommandOptions): Promise<SandboxCommandResult> {
-    const { CrossPlatformShell } = require('./CrossPlatformShell');
     const start = Date.now();
     const result = await CrossPlatformShell.exec(options.command, {
       cwd: options.cwd || this.options.workspaceRoot,
@@ -164,7 +252,6 @@ export class SandboxTool {
     
     if (!isDockerAvailable) {
       // Fallback to local shell (with warning)
-      const { CrossPlatformShell } = require('./CrossPlatformShell');
       console.warn('Docker not available, falling back to local shell execution');
       
       const result = await CrossPlatformShell.exec(options.command, {

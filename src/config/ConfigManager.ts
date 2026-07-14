@@ -16,6 +16,12 @@ export interface OmniConfig {
   llmAudit: boolean;
   /** When true, the SecurityAgent may call an LLM for contextual security review (default false). */
   llmSecurity: boolean;
+  /**
+   * When true, agent-generated commands may run directly on the host if the Docker
+   * sandbox is unavailable (no isolation). Default false — host execution is refused
+   * without a container unless the user explicitly opts in.
+   */
+  allowLocalExecution: boolean;
 }
 
 export class ConfigManager {
@@ -58,6 +64,7 @@ export class ConfigManager {
       useSupervisor: cfg.get<boolean>('useSupervisor', false),
       llmAudit: cfg.get<boolean>('llmAudit', false),
       llmSecurity: cfg.get<boolean>('llmSecurity', false),
+      allowLocalExecution: cfg.get<boolean>('allowLocalExecution', false),
     };
   }
 
