@@ -68,3 +68,14 @@ test('TR5 tool honoring isWithinBoundary blocks writes outside boundary', async 
   const ok = await reg.execute('write_file', { path: 'safe/ok.txt', content: 'x' }, ctx);
   expect(ok.success === true, 'write inside boundary allowed');
 });
+
+test('TR6 findRelevantTools ranks tools by query match', () => {
+  const reg = new ToolRegistry(new EventBus());
+  reg.register('read_file', { name: 'read_file', description: 'read a file', inputSchema: { type: 'object', properties: {}, required: [] } }, async () => ({ success: true, output: null, durationMs: 0 }));
+  reg.register('web_search', { name: 'web_search', description: 'search the web', inputSchema: { type: 'object', properties: {}, required: [] } }, async () => ({ success: true, output: null, durationMs: 0 }));
+  reg.register('write_file', { name: 'write_file', description: 'write a file', inputSchema: { type: 'object', properties: {}, required: [] } }, async () => ({ success: true, output: null, durationMs: 0 }));
+
+  const relevant = reg.findRelevantTools('need to read a file and write updates');
+  expect(relevant[0].name === 'read_file' || relevant[0].name === 'write_file', 'relevant tools should surface file ops first');
+  expect(relevant.some((t) => t.name === 'write_file'), 'write_file should be present in shortlist');
+});

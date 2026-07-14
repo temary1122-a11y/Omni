@@ -132,6 +132,31 @@ export class ToolRegistry {
     return Array.from(this.tools.values()).map(t => t.definition);
   }
 
+  findRelevantTools(query: string, limit = 6): ToolDefinition[] {
+    const normalized = query.toLowerCase();
+    const tokens = normalized
+      .split(/\s+/)
+      .map((t) => t.replace(/[^a-z0-9_]+/g, ''))
+      .filter((t) => t.length > 2)
+      .filter((t, idx, arr) => arr.indexOf(t) === idx)
+      .slice(0, 10);
+
+    const scored = this.list().map((tool) => {
+      const haystack = `${tool.name} ${tool.description}`.toLowerCase();
+      let score = 0;
+      for (const token of tokens) {
+        if (haystack.includes(token)) score += 1;
+      }
+      if (haystack.includes(normalized.trim())) score += 2;
+      if (tool.name.toLowerCase().includes(tokens[0] ?? '')) score += 1;
+      return { tool, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name));
+    const ranked = scored.filter((s) => s.score > 0).map((s) => s.tool);
+    return ranked.length > 0 ? ranked.slice(0, limit) : this.list().slice(0, limit);
+  }
+
   async execute(name: string, args: any, context: ToolContext): Promise<ToolResult> {
     // Stable id shared by the CALL + RESULT pair so the UI can match them
     // into a single card (previously the timestamps drifted and the result got

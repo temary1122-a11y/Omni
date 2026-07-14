@@ -16,6 +16,8 @@ export function formatResearchBlock(report?: ResearchReport | null): string {
 export interface RuntimeUserMessageOptions {
   contextLimit: number;
   registeredTools?: ToolDefinition[];
+  relevantTools?: ToolDefinition[];
+  showOnlyRelevantTools?: boolean;
   disableToolListing?: boolean;
 }
 
@@ -61,7 +63,17 @@ export function buildRuntimeUserMessage(
     message += `Plan: ${context.planSummary}\n\n`;
   }
 
-  if (!options.disableToolListing && options.registeredTools) {
+  if (!options.disableToolListing && options.relevantTools?.length) {
+    message += `Most relevant tools (exact names + required args):\n`;
+    for (const t of options.relevantTools) {
+      const req = t.inputSchema.required ?? [];
+      const argSummary = req.map((r) => `${r}:<value>`).join(', ');
+      message += `- ${t.name}(${argSummary}) — ${t.description.slice(0, 90)}\n`;
+    }
+    message += `If you are unsure about an argument, re-read the tool name and required args listed above, or use the help tool for more.\n`;
+  }
+
+  if (!options.disableToolListing && options.registeredTools && !options.showOnlyRelevantTools) {
     message += `Available tools (exact names + required args):\n`;
     for (const t of options.registeredTools) {
       const req = t.inputSchema.required ?? [];

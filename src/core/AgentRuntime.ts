@@ -563,9 +563,12 @@ export class AgentRuntime {
   }
 
   private buildUserMessage(goal: string, context: ContextPacket): string {
+    const relevantTools = this.toolRegistry.findRelevantTools(goal, 8);
     return buildRuntimeUserMessage(goal, context, {
       contextLimit: this.resolveContextWindow(),
       registeredTools: this.toolRegistry.list(),
+      relevantTools,
+      showOnlyRelevantTools: true,
       disableToolListing: this.options.disableToolListingInSystemPrompt,
     });
   }
