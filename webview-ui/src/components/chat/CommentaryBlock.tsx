@@ -1,6 +1,7 @@
 import { MessageSquareQuote } from 'lucide-react';
 import type { AgentRole, Phase } from '@/types';
 import { getAgentMeta, PHASE_LABELS } from '@/utils/agentConfig';
+import { useTranslation } from '@/i18n';
 
 interface CommentaryBlockProps {
   agentId: AgentRole;
@@ -11,6 +12,7 @@ interface CommentaryBlockProps {
 
 export function CommentaryBlock({ agentId, phase, message, highlight }: CommentaryBlockProps) {
   const meta = getAgentMeta(agentId);
+  const { t } = useTranslation();
   return (
     <div
       className="omni-fade-up"
@@ -46,6 +48,20 @@ export function CommentaryBlock({ agentId, phase, message, highlight }: Commenta
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
           <MessageSquareQuote size={12} style={{ color: meta.color }} />
           <span style={{ fontSize: 11, fontWeight: 700, color: meta.color }}>{meta.label}</span>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: 0.5,
+              padding: '1px 6px',
+              borderRadius: 999,
+              background: 'rgba(255,255,255,0.05)',
+              color: 'var(--color-text-secondary, #8b949e)',
+            }}
+          >
+            {t('commentary.title')}
+          </span>
           <span
             style={{
               fontSize: 9,
