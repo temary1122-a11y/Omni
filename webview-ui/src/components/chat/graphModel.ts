@@ -284,7 +284,14 @@ export function buildOperationalGraph(input: {
       order: index,
     }));
 
-  const fileNodes = [...fileStats.entries()].map(([id, stats], index) => ({
+  // Cap tool/file nodes to prevent ReactFlow performance collapse
+  const MAX_TOOL_NODES = 15;
+  const MAX_FILE_NODES = 15;
+
+  const fileEntries = [...fileStats.entries()].slice(-MAX_FILE_NODES);
+  const toolEntries = [...toolStats.entries()].slice(-MAX_TOOL_NODES);
+
+  const fileNodes = fileEntries.map(([id, stats], index) => ({
     id,
     kind: 'file' as const,
     label: fileLabel(id.replace(/^file:/, '')),
@@ -294,7 +301,7 @@ export function buildOperationalGraph(input: {
       order: index,
   }));
 
-  const toolNodes = [...toolStats.entries()].map(([id, stats], index) => ({
+  const toolNodes = toolEntries.map(([id, stats], index) => ({
     id,
     kind: 'tool' as const,
     label: id.replace(/^tool:/, ''),

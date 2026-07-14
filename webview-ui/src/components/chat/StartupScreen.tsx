@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Clock, Trash2, KeyRound, ExternalLink } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useOmniStore } from '@/store/omniStore';
+import { OmniLogo } from '@/components/common/OmniLogo';
 
 const ACCENT = 'var(--color-primary, #7c6af7)';
 const BORDER = 'var(--color-border, #30363d)';
@@ -59,6 +60,22 @@ export function StartupScreen({ onStartNewSession }: { onStartNewSession: (goal:
     >
       {/* Greeting */}
       <div style={{ textAlign: 'center', marginBottom: 40 }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 56,
+            height: 56,
+            borderRadius: 14,
+            marginBottom: 16,
+            color: '#fff',
+            background: 'var(--color-primary, #7c6af7)',
+            boxShadow: '0 0 24px rgba(124,106,247,0.4)',
+          }}
+        >
+          <OmniLogo size={32} color="#fff" />
+        </div>
         <h1
           style={{
             fontSize: 'var(--font-size-4xl, 32px)',

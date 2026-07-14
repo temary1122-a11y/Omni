@@ -419,6 +419,7 @@ export const useOmniStore = create<OmniState & OmniActions>((set, get, api) => {
     },
 
     selectModel(model?: string): void {
+      set({ selectedModel: model ?? null });
       get().sendCommand('selectModel', { model });
     },
 

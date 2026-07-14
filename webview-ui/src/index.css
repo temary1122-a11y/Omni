@@ -298,3 +298,30 @@ pre,
     transition-duration: 0.001ms !important;
   }
 }
+
+/* --- Tool card spin animation -------------------------------------------- */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* --- Tool card hover ----------------------------------------------------- */
+.omni-tool-card {
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.omni-tool-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* --- Prompt input focus glow --------------------------------------------- */
+.omni-app textarea:focus {
+  box-shadow: 0 0 0 1px rgba(124, 106, 247, 0.3);
+}
+
+/* --- Composer button hover ----------------------------------------------- */
+.omni-app button:not(:disabled):hover {
+  opacity: 0.88;
+}
+.omni-app button:not(:disabled):active {
+  transform: scale(0.97);
+}
