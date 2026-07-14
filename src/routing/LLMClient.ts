@@ -50,11 +50,12 @@ export class LLMClient {
 
     if (selection.provider === 'fallback') {
       const response = {
-        content: this.fallbackResponse(messages),
+        content: this.fallbackResponse(messages, 'provider set to fallback'),
         provider: 'fallback',
         model: selection.modelId,
         usedFallback: true,
         reasoning: undefined,
+        error: 'provider set to fallback',
       };
       logLLMCall({
         ...logContext,
@@ -72,11 +73,12 @@ export class LLMClient {
 
     if (needsKey && !key) {
       const response = {
-        content: this.fallbackResponse(messages),
+        content: this.fallbackResponse(messages, `no API key for ${selection.provider}`),
         provider: 'fallback',
         model: 'no-api-key',
         usedFallback: true,
         reasoning: undefined,
+        error: `no API key for ${selection.provider}`,
       };
       logLLMCall({
         ...logContext,
@@ -184,7 +186,7 @@ export class LLMClient {
         error: errorMsg.slice(0, 200),
       });
       return {
-        content: this.fallbackResponse(messages),
+        content: this.fallbackResponse(messages, errorMsg),
         provider: 'fallback',
         model: selection.modelId,
         usedFallback: true,
@@ -194,50 +196,13 @@ export class LLMClient {
     }
   }
 
-  private fallbackResponse(messages: LLMMessage[]): string {
+  private fallbackResponse(messages: LLMMessage[], reason: string): string {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
-    const lower = lastUser.toLowerCase();
 
-    // Return clearly-INVALID marker objects (valid JSON, empty payload) so downstream
-    // validators (e.g. ArtifactValidator) reject them as failed instead of treating
-    // fake-populated data as a real report. The orchestrator then retries.
-    if (lower.includes('research') || lower.includes('best practice')) {
-      return JSON.stringify({
-        _fallbackError: true,
-        note: 'offline stub — provider unavailable',
-        summary: '',
-        terms: [],
-        bestPractices: [],
-        patterns: [],
-        sources: [],
-      });
-    }
-    if (lower.includes('plan') || lower.includes('architecture')) {
-      return JSON.stringify({
-        _fallbackError: true,
-        note: 'offline stub — provider unavailable',
-        stack: [],
-        architecture: '',
-        subtasks: [],
-      });
-    }
-    if (lower.includes('security') || lower.includes('audit')) {
-      return JSON.stringify({
-        _fallbackError: true,
-        note: 'offline stub — provider unavailable',
-        passed: false,
-        findings: [],
-      });
-    }
-    if (lower.includes('verify') || lower.includes('audit code')) {
-      return JSON.stringify({
-        _fallbackError: true,
-        note: 'offline stub — provider unavailable',
-        verdict: 'ERROR',
-        notes: '',
-      });
-    }
-
-    return `// Omni fallback generation for: ${lastUser.slice(0, 80)}\nexport const app = { ready: true };\n`;
+    return JSON.stringify({
+      _fallbackError: true,
+      reason,
+      taskPreview: lastUser.slice(0, 120),
+    });
   }
 }

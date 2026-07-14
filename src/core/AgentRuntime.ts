@@ -608,7 +608,6 @@ export class AgentRuntime {
            }
          } catch { /* ignore */ }
        }
-       addArtifact(fp, '');
      }
 
      return {

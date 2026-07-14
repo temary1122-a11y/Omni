@@ -86,7 +86,19 @@ test('AR4 write_file tool produces an artifact captured by the runtime', async (
   expect(fs.existsSync(path.join(tmpDir, rel)), 'the file should actually exist on disk');
 });
 
-test('AR5 LLM failures reject instead of becoming successful final responses', async () => {
+test('AR5 prose-only file mentions do not become artifacts', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-rt-'));
+  createdTmpDirs.push(tmpDir);
+  const router = new FakeModelRouter([{ content: 'I created file out/note.txt and it is ready.' }]);
+  const rt = buildRuntime(tmpDir, router, [], {});
+
+  const manifest = await rt.run('goal', ctxPacket);
+
+  expect(manifest.artifacts.length === 0, `mentioned files should not become artifacts when nothing was written (got ${manifest.artifacts.length})`);
+  expect(fs.existsSync(path.join(tmpDir, 'out/note.txt')) === false, 'the runtime must not fabricate files on disk');
+});
+
+test('AR6 LLM failures reject instead of becoming successful final responses', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-rt-'));
   createdTmpDirs.push(tmpDir);
   const router = new FakeModelRouter([]);
