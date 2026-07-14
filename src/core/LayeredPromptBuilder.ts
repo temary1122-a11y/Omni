@@ -5,6 +5,13 @@ export interface PromptLayer {
   condition?: (context: any) => boolean;
 }
 
+function detectLanguage(text: string): string {
+  if (/[а-яА-ЯёЁ]/.test(text)) return 'Russian';
+  if (/[\u4e00-\u9fff]/.test(text)) return 'Chinese';
+  if (/[\u0600-\u06FF]/.test(text)) return 'Arabic';
+  return 'English';
+}
+
 export interface PromptContext {
   agentId: string;
   phase: string;
@@ -42,7 +49,12 @@ export class LayeredPromptBuilder {
     const anchored = context.compassContextBlock
       ? `${context.compassContextBlock}\n\n${basePrompt}`
       : basePrompt;
-    return `${anchored}\n\nCurrent task: ${context.goal}`;
+    const language = detectLanguage(context.goal);
+    const languageDirective =
+      language === 'English'
+        ? ''
+        : `\n\nIMPORTANT: Respond in ${language} to match the user's language.`;
+    return `${anchored}\n\nCurrent task: ${context.goal}${languageDirective}`;
   }
 
   buildUserPrompt(context: PromptContext): string {
