@@ -24,6 +24,14 @@ export interface SelfPromptingAgent {
   evaluateConversation(history: AgentMessage[]): Promise<number>;
 }
 
+export interface SelfPromptingLoopResult {
+  finalGoal: string;
+  conversationHistory: AgentMessage[];
+  converged: boolean;
+  rounds: number;
+  stopReason: 'converged' | 'needs_more_info' | 'max_rounds';
+}
+
 export interface AgentResponse {
   content: string;
   confidence: number;
@@ -116,12 +124,7 @@ export class PromptOrchestrator {
   async runSelfPromptingLoop(
     initialGoal: string,
     startAgentId?: string
-  ): Promise<{
-    finalGoal: string;
-    conversationHistory: AgentMessage[];
-    converged: boolean;
-    rounds: number;
-  }> {
+  ): Promise<SelfPromptingLoopResult> {
     let currentGoal = initialGoal;
     let currentAgentId = startAgentId || Array.from(this.agents.keys())[0];
     
@@ -141,9 +144,13 @@ export class PromptOrchestrator {
 
     for (let round = 0; round < this.options.maxRounds; round++) {
       const roundMessages: AgentMessage[] = [];
+      const agentIds = Array.from(this.agents.keys());
+      const startIndex = Math.max(0, agentIds.indexOf(currentAgentId));
+      const orderedAgents =
+        startIndex === 0 ? agentIds : [...agentIds.slice(startIndex), ...agentIds.slice(0, startIndex)];
 
       // Each agent prompts the next one
-      for (const [agentId] of this.agents) {
+      for (const agentId of orderedAgents) {
         const nextAgentId = this.getNextAgent(agentId);
         if (!nextAgentId) continue;
 
@@ -206,6 +213,14 @@ export class PromptOrchestrator {
                 recoverable: true,
               } as any,
             });
+
+            return {
+              finalGoal: currentGoal,
+              conversationHistory: this.conversationHistory,
+              converged: false,
+              rounds: round + 1,
+              stopReason: 'needs_more_info',
+            };
           }
         } catch (error) {
           this.options.eventBus.emit({
@@ -239,6 +254,7 @@ export class PromptOrchestrator {
           conversationHistory: this.conversationHistory,
           converged: true,
           rounds: round + 1,
+          stopReason: 'converged',
         };
       }
     }
@@ -249,6 +265,7 @@ export class PromptOrchestrator {
       conversationHistory: this.conversationHistory,
       converged: false,
       rounds: this.options.maxRounds,
+      stopReason: 'max_rounds',
     };
   }
 
@@ -273,4 +290,3 @@ export class PromptOrchestrator {
     return Array.from(this.agents.keys());
   }
 }
-
