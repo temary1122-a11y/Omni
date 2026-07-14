@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { HandoffContract, ContextPacket } from '../../shared/types';
+import { EventBus } from '../../src/core/EventBus';
 
 let tmp: string | undefined;
 afterEach(() => {
@@ -73,11 +74,21 @@ describe('AuditAgent', () => {
   it('LLM fallback (usedFallback) → keep heuristic-only verdict', async () => {
     const ws = makeWs({ 'a.ts': 'export const x = 1;\n' });
     const router = new FakeModelRouter([{ content: 'ignore' }]);
-    (router as any).call = async () => ({ content: 'ignore', provider: 'fake', model: 'fake', usedFallback: true });
-    const agent = new AuditAgent(router, { openrouter: 'k' }, undefined, true);
+    (router as any).call = async () => ({
+      content: 'ignore',
+      provider: 'fake',
+      model: 'fake',
+      usedFallback: true,
+      error: 'rate limited',
+    });
+    const eventBus = new EventBus();
+    const commentary: string[] = [];
+    eventBus.on('AGENT_COMMENTARY', (event) => commentary.push((event as any).payload.message));
+    const agent = new AuditAgent(router, { openrouter: 'k' }, eventBus, true);
     const manifest = await agent.execute(makeContract(ws, ['a.ts']), ws);
     const report = JSON.parse(manifest.artifacts[0].content) as any;
     expect(report.verdict).toBe('PASS');
     expect(report.criteria.every((c: any) => !String(c.criterion).startsWith('LLM:'))).toBe(true);
+    expect(commentary.some((message) => message.includes('rate limited'))).toBe(true);
   });
 });

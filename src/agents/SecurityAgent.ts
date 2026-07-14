@@ -163,22 +163,32 @@ async function safeLlmSecurityReview(
     );
 
     if (!res || res.usedFallback) {
+      emitSecurityReviewWarning(
+        eventBus,
+        `LLM security review unavailable: ${res?.error || 'provider fallback'}`
+      );
       return { findings: [] };
     }
 
     const raw = extractJsonFromLLMResponse(res.content, res.reasoning);
     if (!raw) {
+      emitSecurityReviewWarning(eventBus, 'LLM security review returned no parseable response');
       return { findings: [] };
     }
 
     let parsed: any;
     try {
       parsed = JSON.parse(raw);
-    } catch {
+    } catch (error) {
+      emitSecurityReviewWarning(
+        eventBus,
+        `LLM security review returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`
+      );
       return { findings: [] };
     }
 
     if (!parsed || !Array.isArray(parsed.findings)) {
+      emitSecurityReviewWarning(eventBus, 'LLM security review response is missing a findings array');
       return { findings: [] };
     }
 
@@ -205,9 +215,25 @@ async function safeLlmSecurityReview(
     }
 
     return { findings: llmFindings };
-  } catch {
+  } catch (error) {
+    emitSecurityReviewWarning(
+      eventBus,
+      `LLM security review failed: ${error instanceof Error ? error.message : String(error)}`
+    );
     return { findings: [] };
   }
+}
+
+function emitSecurityReviewWarning(eventBus: EventBus | undefined, message: string): void {
+  eventBus?.emit({
+    type: 'AGENT_COMMENTARY',
+    payload: {
+      agentId: 'security',
+      phase: 'security',
+      message,
+      timestamp: Date.now(),
+    },
+  });
 }
 
 function selectReviewFiles(contract: HandoffContract, workspaceRoot: string): { rel: string; content: string }[] {

@@ -3,6 +3,10 @@ import { IntakePhase } from '../../../src/pipeline/phases/IntakePhase';
 import { createPipelineContext } from '../../../src/pipeline/types';
 import type { PipelineHost, PipelineServices } from '../../../src/pipeline/types';
 import type { UserGoalPacket } from '../../../shared/types';
+import { scanWorkspace } from '../../../src/pipeline/intakeUtils';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 function makeHost(): PipelineHost {
   return {
@@ -104,5 +108,22 @@ describe('IntakePhase', () => {
       phases: [],
     });
     expect(phase.canRun(ctx)).toBe(true);
+  });
+
+  it('propagates workspace scan failures', async () => {
+    const missingRoot = path.join(os.tmpdir(), `omni-missing-${Date.now()}`);
+    await expect(scanWorkspace(missingRoot)).rejects.toThrow(
+      `Unable to scan workspace "${missingRoot}"`
+    );
+  });
+
+  it('propagates malformed package.json errors', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-intake-'));
+    try {
+      fs.writeFileSync(path.join(root, 'package.json'), '{ invalid', 'utf-8');
+      await expect(scanWorkspace(root)).rejects.toThrow('Unable to read workspace package.json');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -172,3 +172,31 @@ test('E4 headless loop: fake LLM infinitely emits web_search but must stop (no h
   const outputs = toolResults.map((r) => r.output || '').join('\n');
   expect(/no new results|duplicate/i.test(outputs), 'stale-search guard should fire (no new results / duplicate)');
 });
+
+test('E5 report persistence failures reject instead of returning a phantom artifact', async () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-test-'));
+  createdTmpDirs.push(parent);
+  const invalidRoot = path.join(parent, 'workspace-file');
+  fs.writeFileSync(invalidRoot, 'not a directory', 'utf-8');
+  const eventBus = new EventBus();
+  const fakeRouter = new FakeModelRouter([
+    { content: 'unable to use tools' },
+    { content: 'unable to use tools' },
+    { content: 'unable to use tools' },
+  ]);
+  const researchAgent = new ResearchAgent(fakeRouter, {}, eventBus);
+  (researchAgent as any).searchQuery = async () => [];
+
+  let caught: unknown;
+  try {
+    await researchAgent.execute(makeContract(), invalidRoot);
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught instanceof Error, 'research execution should reject when its report cannot be written');
+  expect(
+    caught instanceof Error && caught.message.includes('Unable to persist research report'),
+    'research persistence error should include report context'
+  );
+});

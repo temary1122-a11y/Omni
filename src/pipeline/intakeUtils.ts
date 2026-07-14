@@ -44,8 +44,9 @@ export async function scanWorkspace(workspaceRoot: string): Promise<WorkspaceSna
         files.push(entry.name);
       }
     }
-  } catch {
-    // Empty workspace or permission error
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to scan workspace "${workspaceRoot}": ${message}`);
   }
 
   const hasPackageJson = fs.existsSync(path.join(workspaceRoot, 'package.json'));
@@ -56,8 +57,9 @@ export async function scanWorkspace(workspaceRoot: string): Promise<WorkspaceSna
       const pkg = JSON.parse(fs.readFileSync(path.join(workspaceRoot, 'package.json'), 'utf-8'));
       if (pkg.dependencies) techStack.push(...Object.keys(pkg.dependencies));
       if (pkg.devDependencies) techStack.push(...Object.keys(pkg.devDependencies));
-    } catch {
-      // Ignore parse errors
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to read workspace package.json: ${message}`);
     }
   }
 

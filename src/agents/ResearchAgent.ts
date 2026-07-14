@@ -84,8 +84,12 @@ export class ResearchAgent extends LlmAgent {
           report.summary +
           (sources.length ? `\n\nSources:\n${sources.slice(0, 8).join('\n')}` : '');
         return { content: body, confidence: 0.9, needsMoreInfo: false, metadata: { usedWebSearch: true } };
-      } catch {
-        // fall through to a plain text reply
+      } catch (error) {
+        this.emitCommentary(
+          'research',
+          'Live research failed; falling back to a plain response: ' +
+            (error instanceof Error ? error.message : String(error))
+        );
       }
     }
     return super.respondToPrompt(prompt, context);
@@ -142,11 +146,13 @@ export class ResearchAgent extends LlmAgent {
             headers: { 'Content-Type': 'application/json', 'x-api-key': exaKey },
             body: JSON.stringify({ query: q, numResults: 3 }),
           });
-          if (res.ok) {
-            const data: any = await res.json();
-            for (const r of data?.results ?? []) {
-              found.push({ url: r.url, text: (r.title || '') + '\n' + (r.text || r.summary || '') });
-            }
+          if (!res.ok) {
+            this.emitCommentary('research', `Exa search failed with HTTP ${res.status}`);
+            continue;
+          }
+          const data: any = await res.json();
+          for (const r of data?.results ?? []) {
+            found.push({ url: r.url, text: (r.title || '') + '\n' + (r.text || r.summary || '') });
           }
         } else if (tavilyKey) {
           const res = await fetch('https://api.tavily.com/search', {
@@ -154,11 +160,13 @@ export class ResearchAgent extends LlmAgent {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ api_key: tavilyKey, query: q, max_results: 3 }),
           });
-          if (res.ok) {
-            const data: any = await res.json();
-            for (const r of data?.results ?? []) {
-              found.push({ url: r.url, text: (r.title || '') + '\n' + (r.content || '') });
-            }
+          if (!res.ok) {
+            this.emitCommentary('research', `Tavily search failed with HTTP ${res.status}`);
+            continue;
+          }
+          const data: any = await res.json();
+          for (const r of data?.results ?? []) {
+            found.push({ url: r.url, text: (r.title || '') + '\n' + (r.content || '') });
           }
         }
       } catch (e) {
@@ -182,12 +190,14 @@ export class ResearchAgent extends LlmAgent {
       try {
         const url = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(q) + '&format=json&no_html=1';
         const res = await fetch(url);
-        if (res.ok) {
-          const data: any = await res.json();
-          const topics: any[] = data?.RelatedTopics ?? [];
-          for (const t of topics.slice(0, 5)) {
-            if (t?.Text) found.push({ url: t.FirstURL || '', text: String(t.Text) });
-          }
+        if (!res.ok) {
+          this.emitCommentary('research', `Keyless search failed with HTTP ${res.status}`);
+          continue;
+        }
+        const data: any = await res.json();
+        const topics: any[] = data?.RelatedTopics ?? [];
+        for (const t of topics.slice(0, 5)) {
+          if (t?.Text) found.push({ url: t.FirstURL || '', text: String(t.Text) });
         }
       } catch (e) {
         this.emitCommentary('research', 'keyless search query failed: ' + (e instanceof Error ? e.message : String(e)));
@@ -205,13 +215,20 @@ export class ResearchAgent extends LlmAgent {
     const one = async (url: string, headers: Record<string, string>, body: any): Promise<{ url: string; text: string }[]> => {
       try {
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          this.emitCommentary('research', `Web search failed with HTTP ${res.status}`);
+          return [];
+        }
         const data: any = await res.json();
         if (url.includes('exa.ai')) {
           return (data?.results ?? []).map((r: any) => ({ url: r.url, text: (r.title || '') + '\n' + (r.text || r.summary || '') }));
         }
         return (data?.results ?? []).map((r: any) => ({ url: r.url, text: (r.title || '') + '\n' + (r.content || '') }));
-      } catch {
+      } catch (error) {
+        this.emitCommentary(
+          'research',
+          'Web search request failed: ' + (error instanceof Error ? error.message : String(error))
+        );
         return [];
       }
     };
@@ -229,10 +246,17 @@ export class ResearchAgent extends LlmAgent {
     try {
       const url = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1';
       const res = await fetch(url);
-      if (!res.ok) return [];
+      if (!res.ok) {
+        this.emitCommentary('research', `Keyless search failed with HTTP ${res.status}`);
+        return [];
+      }
       const data: any = await res.json();
       return (data?.RelatedTopics ?? []).slice(0, 5).filter((t: any) => t?.Text).map((t: any) => ({ url: t.FirstURL || '', text: String(t.Text) }));
-    } catch {
+    } catch (error) {
+      this.emitCommentary(
+        'research',
+        'Keyless search request failed: ' + (error instanceof Error ? error.message : String(error))
+      );
       return [];
     }
   }
@@ -435,7 +459,10 @@ export class ResearchAgent extends LlmAgent {
     try {
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, content, 'utf-8');
-    } catch { /* ignore */ }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to persist research report "${targetPath}": ${message}`);
+    }
 
     return this.createManifest(contract.subtaskId, [{ filePath: targetPath, content, hash: this.hash(content) }], report.summary);
   }

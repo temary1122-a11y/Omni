@@ -539,13 +539,9 @@ export class AgentRuntime {
         undefined,
         tools
       );
-    } catch (error: any) {
-      console.error(`AgentRuntime [${this.options.agentId}] LLM call failed:`, error.message);
-      return {
-        content: `Error: ${error.message}`,
-        reasoning: undefined,
-        toolCalls: [],
-      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`AgentRuntime [${this.options.agentId}] LLM call failed: ${message}`);
     }
 
     if (response.usedFallback && this.options.agentId === 'coder') {
