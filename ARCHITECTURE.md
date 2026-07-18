@@ -208,17 +208,45 @@ Tools are registered in `ToolRegistry` (`src/core/`) and exposed to the runtime 
 tools resolve caller paths through `resolveWithinWorkspace`, which rejects absolute paths and `..`
 escapes (no sibling‑prefix false positives).
 
-Execution:
+**Factory modules** (`NativeToolsFactory.ts`):
+- `createNativeSearchTools()` — registers `native_web_search` + `native_web_fetch` (DDG‑based, zero API key)
+- `createNodeSandboxTools()` — registers `run_js` (in‑process JS sandbox, no Docker required)
+- `createLearningIntegration()` — wires `SelfLearningEngine` into `AgentRuntime` (observes tool calls, suggests strategies, warns about known failure patterns)
 
+**Three‑tier execution model:**
+
+| Tier | Mechanism | When |
+|------|-----------|------|
+| 1. Docker sandbox | `SandboxTool` + `OmniHarness` (dockerode) | Preferred — full container isolation |
+| 2. NodeSandbox | In‑process JS sandbox (`vm` module) | Docker unavailable — safe for LLM‑generated code |
+| 3. Host execution | `CrossPlatformShell` | Explicit opt‑in only (`omni.allowLocalExecution`) |
+
+**NodeSandbox** (`src/shell/NodeSandbox.ts`):
+- Uses Node.js `vm` module — zero native dependencies
+- Workspace‑bounded FS, no network, no process spawn
+- Static pre‑flight check rejects dangerous patterns before code enters the VM
+- Configurable timeout, output cap, safe‑builtins‑only mode
+
+**NativeWebSearch** (`src/shell/NativeWebSearch.ts`):
+- DuckDuckGo Instant Answer API (public, no auth)
+- Rate‑limited (1 req/sec)
+- HTML→text extraction for direct URL fetching (`native_web_fetch`)
+- Sits as the third fallback tier in: Exa (best) → Tavily → NativeWebSearch (always available)
+
+**SelfLearningEngine** (`src/core/SelfLearningEngine.ts`):
+- Three‑tier learning: pattern recognition (in‑session), strategy optimization (cross‑session), failure prevention (defensive)
+- Deduplicates similar strategies, evicts lowest‑performing when cap is hit
+- Auto‑flushes to `.omniflow/learned-strategies.json` every 60s
+- All data stays local — nothing leaves the machine
+
+Execution routing:
+- **`ExecutionRouter`** chooses between the cline SDK backend and the legacy backend, falling back to
+  legacy on configuration or runtime errors.
 - **`SandboxTool`** (`src/shell/`) runs commands in a Docker container (`dockerode` + `@cline/sdk`)
-  with an enforced boundary.
-- When Docker is unavailable, `omni.allowLocalExecution` (default **false**) gates host execution.
-  Even when enabled, **`CommandSafety`** (`src/shell/CommandSafety.ts`) refuses a block‑list of
-  destructive commands on every entry point, including the static host‑fallback path.
+  with an enforced boundary. When Docker is unavailable, `omni.allowLocalExecution` (default **false**)
+  gates host execution. Even when enabled, **`CommandSafety`** (`src/shell/CommandSafety.ts`) refuses a
+  block‑list of destructive commands on every entry point.
 - **`CrossPlatformShell`** abstracts shell differences across OSes.
-
-`ExecutionRouter` chooses between the cline SDK backend and the legacy backend, falling back to
-legacy on configuration or runtime errors.
 
 ---
 
@@ -272,6 +300,8 @@ src/
     AgentSupervisor.ts    optional parallel coder orchestration
     ResilientModelRouter.ts health/fallback/budget/caching
     ToolRegistry.ts       tool schemas + path containment
+    NativeToolsFactory.ts register native tools (run_js, native_web_search, learning hooks)
+    SelfLearningEngine.ts pattern‑based continuous learning
     ExecutionRouter.ts    cline vs. legacy backend selection
     BuiltInCodeIndex.ts / CodeIndex.ts  symbol index
     ContextGovernor.ts    context‑window compaction
@@ -280,7 +310,8 @@ src/
   routing/                ModelSelector, ModelIndexer, ModelCapabilityRegistry,
                           LLMClient, pricingTiers, providerUtils, RequestClassifier
   memory/                 working / episodic / semantic / procedural + facade
-  shell/                  SandboxTool, CommandSafety, CrossPlatformShell, SemanticEditor
+  shell/                  SandboxTool, CommandSafety, CrossPlatformShell, SemanticEditor,
+                          NodeSandbox, NativeWebSearch
   pipeline/               phases + pipelineManifest (per‑tier phase sets)
   config/                 ConfigManager (secrets + settings)
 webview-ui/               React Cockpit (chat, agent activity, approvals)

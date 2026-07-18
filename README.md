@@ -67,11 +67,14 @@ while still exposing the underlying reasoning for those who want it.
 - **Adaptive multi‑agent pipeline** — an orchestrator selects which agents run based on task complexity and goal signals, instead of always running a fixed script.
 - **Provider‑agnostic LLM routing** — OpenRouter, Kilo Gateway, Codik, Ollama, with a resilient health/fallback layer and an offline engine.
 - **Budget‑aware model selection** — `free` / `low` / `normal` / `high` tiers map to appropriate model price tiers; free‑only stays free even after paid credits are exhausted.
-- **Boundary‑enforced execution** — tool calls run in a Docker sandbox; without Docker, host execution is **off by default** and a block‑list of destructive commands is always refused.
+- **Dual sandbox execution** — [Docker sandbox](#safety--the-execution-sandbox) for strong isolation + [NodeSandbox](#safety--the-execution-sandbox) in‑process JS sandbox when Docker is unavailable (no Docker required for basic code execution).
+- **Zero‑config web search** — DuckDuckGo‑native search and web content fetching with zero API keys, so agents can always research the web. Falls back gracefully: Exa → Tavily → NativeWebSearch.
+- **Self‑learning engine** — observes every tool call, extracts successful patterns into reusable strategies, learns from failures across sessions. All data stays local (`.omniflow/learned-strategies.json`).
+- **Boundary‑enforced execution** — tool commands run in a sandbox with command safety; without Docker, host execution is **off by default** and a block‑list of destructive commands is always refused.
 - **Code intelligence** — a built‑in code index resolves symbols to precise coordinates (file/line), and a semantic editor performs symbol‑aware edits so agents don't re‑read whole files.
 - **Layered memory** — episodic, semantic, procedural, and working memory give weak models stronger, more precise context.
 - **Interactive Cockpit** — a React webview with live chat, an agent activity view, and a clear separation between the agent's *reasoning*, its *commentary* to you, and the final *delivery*.
-- **Zero‑config start** — no API key needed to try it (offline fallback).
+- **Zero‑config start** — no API key needed to try it: offline fallback engine + native DDG search + in‑process JS sandbox.
 
 ---
 
@@ -239,13 +242,28 @@ and keeping the context small and relevant. `SemanticEditor` applies symbol‑aw
 
 ## Safety & the execution sandbox
 
-- Tool commands run inside a **Docker sandbox** (`SandboxTool` + `@cline/sdk`) with an enforced boundary.
-- When Docker is **unavailable**, autonomous host execution is **disabled by default**
-  (`omni.allowLocalExecution = false`). You must explicitly opt in to run agent‑generated commands on
-  your machine.
-- `CommandSafety` maintains a block‑list of destructive commands (`rm -rf /`, `mkfs`, `dd`, `format`,
-  `curl | sh`, `shutdown`, `git reset --hard`, …) that is **always** refused, even on the host path.
+OmniFlow provides a **three‑tier execution safety model**:
+
+| Tier | Mechanism | When |
+|------|-----------|------|
+| 1. Docker sandbox | `SandboxTool` + `OmniHarness` (dockerode) | Preferred — full container isolation |
+| 2. NodeSandbox | In‑process JS sandbox (`vm` module) | Docker unavailable — workspace‑bounded FS, no network, no process spawn |
+| 3. Host execution | `CrossPlatformShell` | Explicit opt‑in only (`omni.allowLocalExecution`) |
+
+**NodeSandbox** (`src/shell/NodeSandbox.ts`):
+- Uses Node.js built‑in `vm` module (no native dependencies)
+- FS access is workspace‑bounded (rejects path traversal and absolute paths)
+- Network access is blocked (no `require('http')`, `require('net')`, etc.)
+- Process spawning is blocked (no `require('child_process')`)
+- 200KB code size limit, configurable timeout (default 30s), 64KB output cap
+- Pre‑flight static check rejects dangerous patterns (eval, process.exit, dynamic import, constructor chain escapes, globalThis access)
+- Only safe Node.js builtins exposed (buffer, crypto, events, path, stream, zlib, etc.)
+- Registered as `run_js` tool — available to all agents
+
+**Common safety rules (all tiers):**
+- `CommandSafety` maintains a block‑list of destructive commands (`rm -rf /`, `mkfs`, `dd`, `format`, `curl | sh`, `shutdown`, `git reset --hard`, …) that is **always** refused.
 - File tools reject path traversal and absolute‑path escapes outside the workspace root.
+- When Docker is **unavailable**, autonomous host execution is **disabled by default** (`omni.allowLocalExecution = false`). You must explicitly opt in to run agent‑generated commands on your machine.
 
 ## The Cockpit UI
 
@@ -310,12 +328,20 @@ npm run build           # compile the extension + build the webview
 ## Testing
 
 ```bash
-npm test          # single run
+npm test          # single run (434 tests across 66 files)
 npm run test:watch
 ```
 
-The Vitest suite covers routing resilience (429 / 402 / 404, credits‑exhausted, Ollama recovery),
-command safety, path‑traversal protection, budget‑tier selection, the code index, and more.
+The Vitest suite covers:
+- Routing resilience (429 / 402 / 404, credits‑exhausted, Ollama recovery, provider fallback chains)
+- Command safety (destructive command blocking, path‑traversal protection)
+- Budget‑tier selection and paid‑model routing
+- NodeSandbox: static checks, vm execution, timeout, FS restriction, output truncation
+- NativeWebSearch: DDG search results, content extraction, link extraction, error handling
+- SelfLearningEngine: strategy extraction, deduplication, persistence, failure learning
+- Code index, memory system, agent runtime, pipeline phases, event bus, and more
+
+New in this release: 55 tests for the autonomy modules (NodeSandbox 24, NativeWebSearch 14, SelfLearningEngine 17).
 
 ## Project layout
 
@@ -323,26 +349,33 @@ command safety, path‑traversal protection, budget‑tier selection, the code i
 src/
   agents/     specialized agents (Clarifier, Researcher, Planner, Coder, Auditor, Security, Verifier, …)
   core/       orchestrator, ReAct runtime, routing/health, code index, prompts, policy, event bus
+              → NativeToolsFactory.ts  — registers run_js, native_web_search, native_web_fetch
+              → SelfLearningEngine.ts  — pattern‑based continuous improvement across sessions
   routing/    provider‑agnostic LLM routing (router, selector, client, indexer, pricing tiers)
   memory/     layered memory (episodic / semantic / procedural / working) + facade
   shell/      sandbox tool, command safety, cross‑platform shell, semantic editor
+              → NodeSandbox.ts — in‑process JS sandbox (no Docker required)
+              → NativeWebSearch.ts — DuckDuckGo zero‑config search + web fetch
   pipeline/   pipeline phases + per‑tier phase manifest
   config/     secret storage & settings
 webview-ui/   React "Cockpit" (chat, agent activity, approvals)
 shared/       types shared between host and webview
 plans/        model indices & architectural notes
+test/         Vitest suite (70 test files, 434 tests)
 ```
 
 ## Status & roadmap
 
-OmniFlow is an active, evolving project. Current focus areas:
+OmniFlow is an active, evolving project built for the **Codik Hackathon**. Current focus areas:
 
+- ✅ **Zero‑config autonomy** — NodeSandbox (no Docker), NativeWebSearch (no API keys), SelfLearningEngine
 - **Reliability first** — never emit empty/fabricated files or silently fall back; surface provider
   failures explicitly and in the user's language.
 - **One global loop/budget controller** with clear stop conditions.
 - **End‑to‑end language propagation** across all phases.
 - **Sharper Cockpit separation** of reasoning / commentary / delivery.
 - **Progressive skills/MCP** loaded on demand by task, rather than stuffed into every prompt.
+- **Self‑learning maturity** — strategy sharing across users (optional, privacy‑preserving), confidence scoring improvements, richer failure pattern analysis.
 
 ## License
 
